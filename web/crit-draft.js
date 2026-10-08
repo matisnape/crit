@@ -4,8 +4,21 @@
   var DEBOUNCE_MS = 500;
   var timers = {};
 
+  // Drafts belong to one review: localStorage is shared by every review
+  // served on the same origin (a fixed `port`), so keys carry the review id
+  // the server embeds in the page (crit-ui-settings.js). "crit-draft-<form>"
+  // is the old unscoped shape, read once as a fallback (see loadDraft).
+  var LEGACY_PREFIX = 'crit-draft-';
+  function keyPrefix() {
+    var review = window.crit && window.crit.uiSettings && window.crit.uiSettings.review;
+    return review ? 'crit-draft~' + review + '~' : LEGACY_PREFIX;
+  }
   function storageKey(formKey) {
-    return 'crit-draft-' + formKey;
+    return keyPrefix() + formKey;
+  }
+  // Keys a review's draft restore may read: its own, plus old unscoped ones.
+  function isOwnKey(key) {
+    return !!key && (key.indexOf(keyPrefix()) === 0 || key.indexOf(LEGACY_PREFIX) === 0);
   }
 
   function saveDraft(formKey, data) {
@@ -30,7 +43,16 @@
 
   function loadDraft(formKey) {
     try {
-      var raw = localStorage.getItem(storageKey(formKey));
+      var key = storageKey(formKey);
+      var raw = localStorage.getItem(key);
+      var legacy = LEGACY_PREFIX + formKey;
+      if (!raw && legacy !== key) {
+        raw = localStorage.getItem(legacy);
+        if (raw) {
+          localStorage.setItem(key, raw);
+          localStorage.removeItem(legacy);
+        }
+      }
       return raw ? JSON.parse(raw) : null;
     } catch (e) {
       return null;
@@ -52,7 +74,7 @@
       var toRemove = [];
       for (var i = 0; i < localStorage.length; i++) {
         var key = localStorage.key(i);
-        if (key && key.indexOf('crit-draft-' + (prefix || '')) === 0) {
+        if (key && key.indexOf(keyPrefix() + (prefix || '')) === 0) {
           toRemove.push(key);
         }
       }
@@ -78,6 +100,8 @@
     clearDraft: clearDraft,
     clearAllDrafts: clearAllDrafts,
     flushAll: flushAll,
+    keyPrefix: keyPrefix,
+    isOwnKey: isOwnKey,
   };
 
   window.crit = window.crit || {};

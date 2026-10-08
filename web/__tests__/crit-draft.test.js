@@ -45,3 +45,30 @@ describe('crit-draft', () => {
     assert.equal(draft.loadDraft('nonexistent'), null);
   });
 });
+
+describe('CRIT-02.3 drafts are kept per review', () => {
+  beforeEach(() => {
+    Object.keys(store).forEach(k => delete store[k]);
+  });
+  const as = (review, fn) => {
+    window.crit.uiSettings = { review };
+    try { return fn(); } finally { delete window.crit.uiSettings; }
+  };
+
+  it('CRIT-02.3 another review on the same origin does not see the draft', () => {
+    as('aaa111', () => draft.saveDraftImmediate('plan.md:1:1:', { body: 'mine' }));
+    assert.equal(as('bbb222', () => draft.loadDraft('plan.md:1:1:')), null);
+    assert.deepEqual(as('aaa111', () => draft.loadDraft('plan.md:1:1:')), { body: 'mine' });
+    assert.ok(as('aaa111', () => draft.isOwnKey(draft.keyPrefix() + 'plan.md:1:1:')));
+    assert.ok(!as('bbb222', () => draft.isOwnKey('crit-draft~aaa111~plan.md:1:1:')));
+  });
+
+  it('CRIT-02.3 an old unprefixed draft is read once for the same form, then dropped', () => {
+    store['crit-draft-plan.md:1:1:'] = JSON.stringify({ body: 'old' });
+    assert.deepEqual(as('aaa111', () => draft.loadDraft('plan.md:1:1:')), { body: 'old' });
+    assert.equal(store['crit-draft-plan.md:1:1:'], undefined);
+    // Moved into this review, so a reload before typing keeps it.
+    assert.deepEqual(as('aaa111', () => draft.loadDraft('plan.md:1:1:')), { body: 'old' });
+    assert.equal(as('bbb222', () => draft.loadDraft('plan.md:1:1:')), null);
+  });
+});

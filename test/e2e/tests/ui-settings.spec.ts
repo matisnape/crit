@@ -5,6 +5,7 @@ import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
 import { stateFilePath } from './state-file';
+import { mdSection } from './helpers';
 
 // Settings-dialog choices live in ~/.crit/ui-settings.json, shared by every
 // review on the machine. These tests run their own crit daemons with their
@@ -42,11 +43,11 @@ function tempDir(prefix: string): string {
 // Starts a crit daemon (`crit _serve`) in a fresh directory holding one file.
 // With client, runs `crit <file>` the way a user does: the client spawns the
 // daemon in the background (its stderr goes to a log file) and blocks.
-async function startReview(opts: { file?: string; content?: string; dir?: string; args?: string[]; client?: boolean } = {}): Promise<Review> {
+async function startReview(opts: { file?: string; content?: string; dir?: string; args?: string[]; client?: boolean; port?: number } = {}): Promise<Review> {
   const dir = opts.dir ?? tempDir('crit-ui-settings-review-');
   const file = opts.file ?? 'plan.md';
   fs.writeFileSync(path.join(dir, file), opts.content ?? '# Plan\n\n- one\n- two\n\n```go\nfunc main() { fmt.Println("a really long line that keeps going and going and going and going and going") }\n```\n');
-  const port = await freePort();
+  const port = opts.port ?? await freePort();
   let err = '';
   const args = opts.args ?? [file];
   const cmd = opts.client ? ['--no-open', '--port', String(port), ...args] : ['_serve', '--no-open', '--port', String(port), ...args];
@@ -183,9 +184,8 @@ test('CRIT-02.2 every Settings-dialog choice survives a daemon restart in anothe
   await expect(page.locator('[data-shortcut-id="next_block"]')).toContainText('y');
 });
 
-test('CRIT-02.3 per-review state stays out of the settings file and out of reviews on another host name', async ({ browser }) => {
+test('CRIT-02.3 per-review state stays out of the settings file', async ({ browser }) => {
   const a = await startReview();
-  const b = await startReview();
   const ctx = await browser.newContext();
   const pageA = await ctx.newPage();
   await openReview(pageA, `http://localhost:${a.port}/`);
@@ -202,14 +202,6 @@ test('CRIT-02.3 per-review state stays out of the settings file and out of revie
   await pageA.locator('[data-settings-theme="dark"]').click();
   await expect.poll(() => stored()).toEqual({ theme: 'dark' });
 
-  const pageB = await ctx.newPage();
-  await openReview(pageB, `http://127.0.0.1:${b.port}/`);
-  const inherited = await pageB.evaluate(() => {
-    const s = (window as any).crit.shared;
-    return ['fileTreeWidth', 'live_commentsPanelWidth', 'live_commentsPanelOpen', 'fileTree'].map(k => s.getSetting(k, null));
-  });
-  // fileTree is written by the page itself on load ("open"), never inherited.
-  expect(inherited).toEqual([null, null, null, 'open']);
   expect(stored()).toEqual({ theme: 'dark' });
   await ctx.close();
 });
@@ -242,6 +234,48 @@ test('CRIT-02.3 per-review state is not inherited by another review on the same 
   await openReview(pageA, `http://localhost:${again.port}/`);
   expect(await read(pageA)).toEqual(values);
   await ctx.close();
+});
+
+test('CRIT-02.3 viewed files and drafts are not shared by two reviews served on the same port', async ({ page }) => {
+  const port = await freePort();
+  // Two files, so each gets a file header with its Viewed checkbox.
+  const viewed = page.locator('.pierre-file-header', { hasText: 'other.go' }).locator('.file-header-viewed input[type="checkbox"]');
+  const reopen = async (dir?: string) => {
+    const d = dir ?? tempDir('crit-ui-settings-review-');
+    fs.writeFileSync(path.join(d, 'other.go'), 'package main\n\nfunc main() {}\n');
+    const r = await startReview({ port, dir: d, args: ['plan.md', 'other.go'] });
+    await openReview(page, `http://localhost:${port}/`);
+    return r;
+  };
+
+  const draftBox = async () => (await mdSection(page)).locator('.comment-form textarea');
+
+  // Review A: an unsent draft, typed into a comment form.
+  const a = await reopen();
+  const section = await mdSection(page);
+  await section.locator('.line-block').first().hover();
+  await section.locator('.line-comment-gutter').first().click();
+  await (await draftBox()).fill('unsent in review A');
+  await expect.poll(() => page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('crit-draft')).length)).toBe(1);
+  await stopReview(a);
+
+  // Review B, same file names, same origin: no draft from A; mark viewed.
+  const b = await reopen();
+  await expect(viewed).not.toBeChecked();
+  await expect(await draftBox()).toHaveCount(0);
+  await viewed.click();
+  await expect(viewed).toBeChecked();
+  await stopReview(b);
+
+  // Review A again: its draft is back, B's viewed file is not.
+  const a2 = await reopen(a.dir);
+  await expect(await draftBox()).toHaveValue('unsent in review A');
+  await expect(viewed).not.toBeChecked();
+  await stopReview(a2);
+
+  // Review B again: its own viewed file is back.
+  await reopen(b.dir);
+  await expect(viewed).toBeChecked();
 });
 
 test('CRIT-02.4 the first load imports the Settings keys of an old cookie, once', async ({ browser }) => {

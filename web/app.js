@@ -761,8 +761,15 @@
     return (hash >>> 0).toString(36);
   }
 
+  // Prefixed with the review id the server embeds: two reviews served on the
+  // same origin (a fixed `port`) with the same file names must not share it.
+  function reviewStoragePrefix() {
+    const review = window.crit.uiSettings && window.crit.uiSettings.review;
+    return review ? review + '-' : '';
+  }
+
   function viewedStorageKey() {
-    return 'crit-viewed-' + viewedIdentityHash();
+    return 'crit-viewed-' + reviewStoragePrefix() + viewedIdentityHash();
   }
 
   // Marker key recording that auto_viewed_patterns were already applied for this
@@ -771,7 +778,7 @@
   // the same port sees this marker and skips re-applying — manual un-marks the
   // user saved via toggleViewed therefore win. (issue #658)
   function autoViewedMarkerKey() {
-    return 'crit-autoviewed-' + viewedIdentityHash();
+    return 'crit-autoviewed-' + reviewStoragePrefix() + viewedIdentityHash();
   }
 
   // Apply auto_viewed_patterns ONCE per launch: mark matching files viewed +
@@ -4966,7 +4973,7 @@
     const keysToProcess = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (k && k.startsWith('crit-draft-')) keysToProcess.push(k);
+      if (draftMod.isOwnKey(k)) keysToProcess.push(k);
     }
     for (let ki = 0; ki < keysToProcess.length; ki++) {
       const key = keysToProcess[ki];

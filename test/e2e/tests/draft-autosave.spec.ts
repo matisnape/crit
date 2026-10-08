@@ -3,7 +3,7 @@ import { clearAllComments, loadPage, mdSection, switchToDocumentView } from './h
 
 // Number of crit-draft-* entries in localStorage.
 function draftCount(page: Page): Promise<number> {
-  return page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('crit-draft-')).length);
+  return page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('crit-draft')).length);
 }
 
 test.describe('Draft Autosave', () => {
@@ -12,7 +12,7 @@ test.describe('Draft Autosave', () => {
     // Navigate once to clear any existing drafts from localStorage
     await page.goto('/');
     await page.evaluate(() => {
-      const keys = Object.keys(localStorage).filter(k => k.startsWith('crit-draft-'));
+      const keys = Object.keys(localStorage).filter(k => k.startsWith('crit-draft'));
       keys.forEach(k => localStorage.removeItem(k));
     });
   });
@@ -32,14 +32,14 @@ test.describe('Draft Autosave', () => {
     // Poll for debounced save to localStorage
     await expect(async () => {
       const keys = await page.evaluate(() =>
-        Object.keys(localStorage).filter(k => k.startsWith('crit-draft-'))
+        Object.keys(localStorage).filter(k => k.startsWith('crit-draft'))
       );
       expect(keys.length).toBeGreaterThan(0);
     }).toPass({ timeout: 3000 });
 
     // Check localStorage
     const draft = await page.evaluate(() => {
-      const keys = Object.keys(localStorage).filter(k => k.startsWith('crit-draft-'));
+      const keys = Object.keys(localStorage).filter(k => k.startsWith('crit-draft'));
       if (keys.length === 0) return null;
       return JSON.parse(localStorage.getItem(keys[0])!);
     });
@@ -66,7 +66,7 @@ test.describe('Draft Autosave', () => {
     // Poll for debounced save to localStorage
     await expect(async () => {
       const keys = await page.evaluate(() =>
-        Object.keys(localStorage).filter(k => k.startsWith('crit-draft-'))
+        Object.keys(localStorage).filter(k => k.startsWith('crit-draft'))
       );
       expect(keys.length).toBeGreaterThan(0);
     }).toPass({ timeout: 3000 });
@@ -102,7 +102,7 @@ test.describe('Draft Autosave', () => {
     // Poll for draft to save
     await expect(async () => {
       const keys = await page.evaluate(() =>
-        Object.keys(localStorage).filter(k => k.startsWith('crit-draft-'))
+        Object.keys(localStorage).filter(k => k.startsWith('crit-draft'))
       );
       expect(keys.length).toBeGreaterThan(0);
     }).toPass({ timeout: 3000 });
@@ -132,7 +132,7 @@ test.describe('Draft Autosave', () => {
     // Poll for debounced save to localStorage
     await expect(async () => {
       const keys = await page.evaluate(() =>
-        Object.keys(localStorage).filter(k => k.startsWith('crit-draft-'))
+        Object.keys(localStorage).filter(k => k.startsWith('crit-draft'))
       );
       expect(keys.length).toBeGreaterThan(0);
     }).toPass({ timeout: 3000 });
@@ -158,7 +158,7 @@ test.describe('Draft Autosave', () => {
     // Poll for debounced save to localStorage
     await expect(async () => {
       const keys = await page.evaluate(() =>
-        Object.keys(localStorage).filter(k => k.startsWith('crit-draft-'))
+        Object.keys(localStorage).filter(k => k.startsWith('crit-draft'))
       );
       expect(keys.length).toBeGreaterThan(0);
     }).toPass({ timeout: 3000 });
