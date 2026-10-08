@@ -91,6 +91,9 @@
           if (full) t.title = full;
           meta.appendChild(t);
         }
+        var cc = typeof window !== 'undefined' && window.crit && window.crit.commentCard;
+        var idBtn = cc && typeof cc.buildIdCopyButton === 'function' && cc.buildIdCopyButton(r.id);
+        if (idBtn) meta.appendChild(idBtn);
         hdr.appendChild(meta);
 
         // Per-reply Edit/Delete affordance — mirrors code-review's

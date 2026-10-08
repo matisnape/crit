@@ -5180,6 +5180,8 @@
       const replyFullTime = formatFullTime(reply.created_at);
       if (replyFullTime) replyTime.title = replyFullTime;
       replyMeta.appendChild(replyTime);
+      const replyIdBtn = window.crit.commentCard.buildIdCopyButton(reply.id);
+      if (replyIdBtn) replyMeta.appendChild(replyIdBtn);
       const replyForge = reply.gitlab_note_id ? 'GitLab' : (reply.github_id ? 'GitHub' : '');
       if (replyForge) {
         const forgeBadge = document.createElement('span');
