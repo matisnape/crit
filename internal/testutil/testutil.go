@@ -1,6 +1,7 @@
 package testutil
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -100,7 +101,12 @@ func MustMkdirAll(path string) string {
 // TestMain. Review sessions, config and auth live under ~/.crit; a crit daemon
 // running in the same checkout (or the developer's own config) must not change
 // test results. Helper subprocesses inherit it.
+//
+// It also fails the run when the developer's real ~/.crit/ui-settings.json
+// changed while the tests ran: that file is shared by every review on the
+// machine, so a test that reaches it would silently rewrite the user's setup.
 func RunWithTempHome(m *testing.M) int {
+	unchanged := GuardRealUISettings()
 	home, err := os.MkdirTemp("", "crit-test-home-")
 	if err != nil {
 		panic(err)
@@ -109,5 +115,40 @@ func RunWithTempHome(m *testing.M) int {
 	os.Setenv("HOME", home)
 	os.Setenv("USERPROFILE", home)
 	os.Setenv("CODEX_HOME", "")
-	return m.Run()
+	code := m.Run()
+	if err := unchanged(); err != nil {
+		fmt.Fprintln(os.Stderr, "FAIL:", err)
+		return 1
+	}
+	return code
+}
+
+// GuardRealUISettings snapshots ~/.crit/ui-settings.json under the current
+// HOME and returns a check that errors if the file was created, changed or
+// removed since. Call it before HOME is swapped for a temp dir.
+func GuardRealUISettings() func() error {
+	path := ""
+	if home, err := os.UserHomeDir(); err == nil {
+		path = filepath.Join(home, ".crit", "ui-settings.json")
+	}
+	before := readOrAbsent(path)
+	return func() error {
+		if path != "" && readOrAbsent(path) != before {
+			return fmt.Errorf("tests changed the real %s; tests must use a temp HOME", path)
+		}
+		return nil
+	}
+}
+
+// readOrAbsent returns the file's bytes, or a marker no file can hold when it
+// does not exist (so "created" and "deleted" both count as a change).
+func readOrAbsent(path string) string {
+	if path == "" {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "\x00absent"
+	}
+	return string(data)
 }

@@ -66,6 +66,13 @@ fi
 # when the build is already cached, so it's a fast no-op in CI and on reruns.
 (cd "$SCRIPT_DIR" && npx playwright install chromium)
 
+# Every fixture and spec runs crit with its own temp HOME. Fingerprint the
+# developer's real ~/.crit/ui-settings.json (shared by every review on the
+# machine) so the run fails if any of them reached it anyway.
+REAL_UI_SETTINGS="$HOME/.crit/ui-settings.json"
+ui_settings_fingerprint() { cksum < "$REAL_UI_SETTINGS" 2>/dev/null || echo absent; }
+UI_SETTINGS_BEFORE=$(ui_settings_fingerprint)
+
 # Kill any stale processes on our test ports before starting fresh
 for port in "$GIT_PORT" "$GIT2_PORT" "$FILE_PORT" "$SINGLE_PORT" "$NOGIT_PORT" "$MULTI_PORT" "$RANGE_PORT" "$LIVE_PORT" "$SHARE_PORT" "$STUB_PORT" "$STUB2_PORT" "$PERF_PORT" "$HUGE_PORT"; do
   e2e_kill_port "$port"
@@ -95,6 +102,10 @@ cleanup() {
   # taskkill /T flushes the whole tree.
   e2e_kill_stray_crit
   rm -rf "${BIN_DIR:-}"
+  if [ "$(ui_settings_fingerprint)" != "$UI_SETTINGS_BEFORE" ]; then
+    echo "FAIL: e2e run changed the real $REAL_UI_SETTINGS; tests must use a temp HOME" >&2
+    exit 1
+  fi
 }
 trap cleanup EXIT
 
