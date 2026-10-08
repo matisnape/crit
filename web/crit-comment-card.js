@@ -10,6 +10,7 @@
 // Required deps (object on opts.deps):
 //   commentMd          — markdown-it instance with .render(body, env)
 //   formatTime(iso)    — short time string for the header timestamp
+//   formatFullTime(iso) — full local timestamp for the header time's title
 //   authorColorIndex(name) — int 0..N for the author colour swatch
 //   getReviewRound()   — current session.review_round (number)
 //   getAgentName()     — current agent name string (for pending @author)
@@ -46,6 +47,7 @@
 
     var commentMd = deps.commentMd;
     var formatTime = deps.formatTime || function () { return ''; };
+    var formatFullTime = deps.formatFullTime || function () { return ''; };
     var authorColorIndex = deps.authorColorIndex || function () { return 0; };
     var getReviewRound = deps.getReviewRound || function () { return 0; };
     var getAgentName = deps.getAgentName || function () { return 'agent'; };
@@ -123,6 +125,8 @@
     var time = document.createElement('span');
     time.className = 'comment-time';
     time.textContent = formatTime(comment.created_at);
+    var fullTime = formatFullTime(comment.created_at);
+    if (fullTime) time.title = fullTime;
     headerLeft.appendChild(time);
 
     if (liveOrPending) {

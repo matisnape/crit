@@ -1299,6 +1299,7 @@
   const escapeHtml = _ccHelpers.escapeHtml;
   const relativeTime = _ccHelpers.relativeTime;
   const formatTime = _ccHelpers.formatTime;
+  const formatFullTime = _ccHelpers.formatFullTime;
 
   function getFileByPath(path) {
     return files.find(f => f.path === path);
@@ -5113,6 +5114,7 @@
     merged.deps = Object.assign({
       commentMd: commentMd,
       formatTime: formatTime,
+      formatFullTime: formatFullTime,
       authorColorIndex: authorColorIndex,
       getReviewRound: function () { return session && session.review_round; },
       getAgentName: function () { return agentName; },
@@ -5191,6 +5193,8 @@
       const replyTime = document.createElement('span');
       replyTime.className = 'reply-time';
       replyTime.textContent = formatTime(reply.created_at);
+      const replyFullTime = formatFullTime(reply.created_at);
+      if (replyFullTime) replyTime.title = replyFullTime;
       replyMeta.appendChild(replyTime);
       const replyForge = reply.gitlab_note_id ? 'GitLab' : (reply.github_id ? 'GitHub' : '');
       if (replyForge) {

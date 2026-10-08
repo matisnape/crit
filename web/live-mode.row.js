@@ -53,6 +53,7 @@
     deps = deps || {};
     var commentMd = deps.commentMd;
     var formatTime = deps.formatTime || formatTimeFallback;
+    var formatFullTime = deps.formatFullTime || function () { return ''; };
     var authorColorIndex = deps.authorColorIndex || function () { return 0; };
     var iconEdit = deps.iconEdit || '';
     var iconDelete = deps.iconDelete || '';
@@ -86,6 +87,8 @@
           var t = document.createElement('span');
           t.className = 'reply-time';
           t.textContent = ts;
+          var full = formatFullTime(r.created_at);
+          if (full) t.title = full;
           meta.appendChild(t);
         }
         hdr.appendChild(meta);
@@ -183,6 +186,7 @@
   // deps:
   //   commentMd       — markdown-it instance
   //   formatTime      — short timestamp renderer
+  //   formatFullTime  — full local timestamp for the time's title
   //   authorColorIndex— author colour swatch picker
   //   getReviewRound  — () => current review round
   //   getCollapseOverride / setCollapseOverride — live-mode-scoped store
@@ -212,6 +216,7 @@
     var replyListBuilder = makeReplyListBuilder({
       commentMd: deps.commentMd,
       formatTime: deps.formatTime,
+      formatFullTime: deps.formatFullTime,
       authorColorIndex: deps.authorColorIndex,
       iconEdit: deps.iconEdit || '',
       iconDelete: deps.iconDelete || '',
@@ -259,6 +264,7 @@
       deps: {
         commentMd: deps.commentMd,
         formatTime: deps.formatTime,
+        formatFullTime: deps.formatFullTime,
         authorColorIndex: deps.authorColorIndex,
         getReviewRound: deps.getReviewRound || function () { return 0; },
         getAgentName: function () { return 'agent'; },

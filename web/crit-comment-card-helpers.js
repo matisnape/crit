@@ -4,8 +4,8 @@
 // Rules for adding helpers here:
 //   1. Pure: no closures over module state, no DOM mutation, no fetch.
 //   2. Returns a string, primitive, or plain object.
-//   3. Behaviour must be byte-identical to the original app.js implementation
-//      so code review keeps rendering exactly the same HTML.
+//   3. Code review and live mode both render through these, so a change here
+//      changes both renderers.
 //
 // Exports onto window.crit.commentCardHelpers. Loaded before app.js and
 // live-mode.js via index.html script order.
@@ -41,11 +41,27 @@
     return Math.floor(diff / 604800) + 'w ago';
   }
 
-  // formatTime — byte-identical to app.js's formatTime (HH:MM in locale).
-  function formatTime(isoStr) {
-    if (!isoStr) return '';
+  // parseTime — Date for a valid timestamp, null for missing/unparseable.
+  function parseTime(isoStr) {
+    if (!isoStr) return null;
     var d = new Date(isoStr);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  // formatTime — short header time (HH:MM in locale); '' when invalid.
+  function formatTime(isoStr) {
+    var d = parseTime(isoStr);
+    return d ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  }
+
+  // formatFullTime — header-time tooltip: local YYYY-MM-DD HH:MM:SS, 24h,
+  // locale-independent; '' when invalid (callers then set no title).
+  function formatFullTime(isoStr) {
+    var d = parseTime(isoStr);
+    if (!d) return '';
+    function p(n) { return String(n).padStart(2, '0'); }
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
+      ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
   }
 
   // authorColorIndex — byte-identical to app.js's authorColorIndex. Picks a
@@ -100,6 +116,7 @@
     chipLabel: chipLabel,
     relativeTime: relativeTime,
     formatTime: formatTime,
+    formatFullTime: formatFullTime,
     formKeyFor: formKeyFor,
     authorColorIndex: authorColorIndex,
     AUTHOR_COLOR_COUNT: AUTHOR_COLOR_COUNT,

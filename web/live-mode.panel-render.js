@@ -75,6 +75,7 @@
       _liveCardDeps = {
         commentMd: commentMd,
         formatTime: helpers.formatTime || function () { return ''; },
+        formatFullTime: helpers.formatFullTime || function () { return ''; },
         authorColorIndex: helpers.authorColorIndex || function () { return 0; },
         getReviewRound: function () {
           return (state.session && state.session.review_round) || 0;
