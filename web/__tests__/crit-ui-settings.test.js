@@ -69,3 +69,9 @@ test('CRIT-02.3 per-review state is not a stored setting', () => {
     assert.ok(!KEYS.includes(k), k);
   }
 });
+
+test('CRIT-02.3 the store exposes a cookie-safe review identity', () => {
+  assert.equal(create({ review: 'abc123' }, {}).review, 'abc123');
+  assert.equal(create({ review: 'a;b=c d' }, {}).review, 'abcd');
+  assert.equal(create({}, {}).review, '');
+});

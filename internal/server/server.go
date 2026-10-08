@@ -763,7 +763,7 @@ func (s *Server) serveHTML(name string) http.HandlerFunc {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		// Settings are shared with other reviews: always re-read on load.
 		w.Header().Set("Cache-Control", "no-store")
-		if _, err := w.Write(injectUISettings(page, r)); err != nil {
+		if _, err := w.Write(s.injectUISettings(page, r)); err != nil {
 			log.Printf("serveHTML %s: %v", name, err)
 		}
 	}

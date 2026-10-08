@@ -92,8 +92,19 @@
   function uiStore() {
     return (typeof window !== 'undefined' && window.crit && window.crit.uiSettings) || null;
   }
-  function readCookieSettings() {
-    const raw = getCookie('crit-settings');
+  // View state that belongs to one review lives in a cookie named after the
+  // review (crit-review-<key>), so another review on the same host, on any
+  // port, starts clean, while this review gets it back after a restart. Old
+  // unscoped copies in crit-settings are ignored.
+  const PER_REVIEW_KEYS = ['fileTreeWidth', 'storyRailWidth', 'commentsPanelWidth', 'fileTree', 'commentsPanel',
+    'toc', 'reviewConvCollapsed', 'live_commentsPanelOpen', 'live_commentsPanelWidth', 'live_viewport'];
+  function cookieFor(key) {
+    const store = uiStore();
+    if (store && store.review && PER_REVIEW_KEYS.indexOf(key) !== -1) return 'crit-review-' + store.review;
+    return 'crit-settings';
+  }
+  function readCookieSettings(name) {
+    const raw = getCookie(name || 'crit-settings');
     if (!raw) return {};
     try { return JSON.parse(raw) || {}; }
     catch (_) { return {}; }
@@ -105,20 +116,28 @@
     const store = uiStore();
     if (!store) return s;
     store.KEYS.forEach(function (k) { delete s[k]; });
+    if (store.review) {
+      PER_REVIEW_KEYS.forEach(function (k) { delete s[k]; });
+      Object.assign(s, readCookieSettings(cookieFor(PER_REVIEW_KEYS[0])));
+    }
     return Object.assign(s, store.all());
   }
   function getSetting(key, fallback) {
     const store = uiStore();
     if (store && store.isSetting(key)) return store.get(key, fallback);
-    const s = readCookieSettings();
+    const s = readCookieSettings(cookieFor(key));
     return Object.prototype.hasOwnProperty.call(s, key) ? s[key] : fallback;
   }
   function setSetting(key, value) {
     const store = uiStore();
     if (store && store.isSetting(key)) return store.set(key, value);
-    const s = readCookieSettings();
+    const name = cookieFor(key);
+    const s = readCookieSettings(name);
     s[key] = value;
-    setCookie('crit-settings', JSON.stringify(s));
+    if (name === 'crit-settings') { setCookie(name, JSON.stringify(s)); return; }
+    // ponytail: one small cookie per review, expiring 30 days after its last
+    // change; move to a server-side per-review file if the cookie count grows.
+    document.cookie = name + '=' + encodeURIComponent(JSON.stringify(s)) + '; path=/; max-age=2592000; SameSite=Strict';
   }
 
   // ---- Code font ----

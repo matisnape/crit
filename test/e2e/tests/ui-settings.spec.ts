@@ -29,7 +29,7 @@ function freePort(): Promise<number> {
   });
 }
 
-interface Review { proc: ChildProcess; port: number; stderr: () => string; client: boolean }
+interface Review { proc: ChildProcess; port: number; stderr: () => string; client: boolean; dir: string }
 
 const running: Review[] = [];
 let home = '';
@@ -56,7 +56,7 @@ async function startReview(opts: { file?: string; content?: string; dir?: string
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   proc.stderr!.on('data', d => { err += d.toString(); });
-  const review = { proc, port, stderr: () => err, client: !!opts.client };
+  const review = { proc, port, stderr: () => err, client: !!opts.client, dir };
   running.push(review);
   await expect.poll(async () => {
     try { return (await fetch(`http://127.0.0.1:${port}/api/health`)).status; } catch { return 0; }
@@ -211,6 +211,36 @@ test('CRIT-02.3 per-review state stays out of the settings file and out of revie
   // fileTree is written by the page itself on load ("open"), never inherited.
   expect(inherited).toEqual([null, null, null, 'open']);
   expect(stored()).toEqual({ theme: 'dark' });
+  await ctx.close();
+});
+
+test('CRIT-02.3 per-review state is not inherited by another review on the same host, different port', async ({ browser }) => {
+  const a = await startReview();
+  const b = await startReview();
+  const ctx = await browser.newContext();
+  const pageA = await ctx.newPage();
+  await openReview(pageA, `http://localhost:${a.port}/`);
+  const keys = ['fileTreeWidth', 'storyRailWidth', 'commentsPanelWidth', 'commentsPanel', 'toc', 'reviewConvCollapsed',
+    'live_commentsPanelWidth', 'live_commentsPanelOpen', 'live_viewport', 'fileTree'];
+  const values: unknown[] = [333, 222, 444, 'collapsed', 'open', true, 555, false, 'mobile', 'collapsed'];
+  await pageA.evaluate(([k, v]) => {
+    const s = (window as any).crit.shared;
+    (k as string[]).forEach((key, i) => s.setSetting(key, (v as unknown[])[i]));
+  }, [keys, values]);
+  const read = (page: Page) => page.evaluate((k) => (k as string[]).map(key => (window as any).crit.shared.getSetting(key, null)), keys);
+
+  // Same host (one cookie jar), another port: a different review.
+  const pageB = await ctx.newPage();
+  await openReview(pageB, `http://localhost:${b.port}/`);
+  // fileTree is written by the page itself on load ("open"), never inherited.
+  expect(await read(pageB)).toEqual([null, null, null, null, null, null, null, null, null, 'open']);
+  expect(stored()).toBeNull();
+
+  // The same review reopened later on a new port gets its own state back.
+  await stopReview(a);
+  const again = await startReview({ dir: a.dir });
+  await openReview(pageA, `http://localhost:${again.port}/`);
+  expect(await read(pageA)).toEqual(values);
   await ctx.close();
 });
 

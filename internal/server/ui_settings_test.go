@@ -227,3 +227,13 @@ func TestCRIT02_4_DeleteResetsToDefaults(t *testing.T) {
 		t.Fatalf("file still there: %v", err)
 	}
 }
+
+func TestCRIT02_3_PageCarriesTheReviewIdentity(t *testing.T) {
+	uiSettingsHome(t)
+	s, _ := newTestServer(t)
+	s.reviewPath = filepath.Join(t.TempDir(), "reviews", "abc123def456")
+	snap := injectedSnapshot(t, serve(t, s, http.MethodGet, "/", "", nil).Body.String())
+	if snap["review"] != "abc123def456" {
+		t.Fatalf("review = %v", snap["review"])
+	}
+}

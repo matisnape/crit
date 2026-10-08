@@ -82,7 +82,9 @@
       if (palette) palette.applySaved(html);
     }
 
-    return { KEYS: KEYS, isSetting: isSetting, get: get, all: all, set: set, applyTheme: applyTheme, path: path };
+    // This review's identity (its review folder key), for per-review state.
+    var review = String(snap.review || '').replace(/[^A-Za-z0-9_-]/g, '');
+    return { KEYS: KEYS, isSetting: isSetting, get: get, all: all, set: set, applyTheme: applyTheme, path: path, review: review };
   }
 
   var api = { KEYS: KEYS, create: create };

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"path/filepath"
 
 	"github.com/tomasz-tomczyk/crit/internal/uisettings"
 )
@@ -92,8 +93,18 @@ func pageUISettings(r *http.Request) uisettings.Snapshot {
 	return snap
 }
 
-func injectUISettings(page []byte, r *http.Request) []byte {
-	data, err := json.Marshal(pageUISettings(r)) // escapes <, > and &
+// injectUISettings embeds the stored settings plus this review's identity
+// (the review folder's key: cwd + branch or args, stable across restarts and
+// ports), which the page uses to keep per-review view state apart.
+func (s *Server) injectUISettings(page []byte, r *http.Request) []byte {
+	review := ""
+	if s.reviewPath != "" {
+		review = filepath.Base(s.reviewPath)
+	}
+	data, err := json.Marshal(struct {
+		uisettings.Snapshot
+		Review string `json:"review,omitempty"`
+	}{pageUISettings(r), review}) // escapes <, > and &
 	if err != nil {
 		return page
 	}

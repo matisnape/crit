@@ -1284,3 +1284,20 @@ test('runFinishReview does not POST /api/finish when the server stops during the
   assert.equal(result, null);
   assert.equal(fetched, false);
 });
+
+test('CRIT-02.3 per-review keys go to a cookie named after the review; old unscoped copies are ignored', () => {
+  const store = { review: 'r1', KEYS: [], isSetting: () => false, all: () => ({}) };
+  sandbox.window.crit.uiSettings = store;
+  try {
+    sandbox.document.cookie = 'crit-settings=' + encodeURIComponent(JSON.stringify({ fileTreeWidth: 999, diffMode: 'unified' }));
+    assert.equal(shared.getSetting('fileTreeWidth', null), null);
+    assert.equal(shared.getSetting('diffMode', 'split'), 'unified');
+    shared.setSetting('fileTreeWidth', 321);
+    assert.match(sandbox.document.cookie, /^crit-review-r1=/);
+    assert.match(sandbox.document.cookie, /max-age=2592000/);
+    assert.equal(shared.getSetting('fileTreeWidth', null), 321);
+  } finally {
+    delete sandbox.window.crit.uiSettings;
+    sandbox.document.cookie = '';
+  }
+});
