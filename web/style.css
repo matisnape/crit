@@ -1930,7 +1930,7 @@ body.dragging { user-select: none; cursor: grabbing; }
 .comment-id-btn {
   font-family: var(--crit-font-mono);
   font-size: 11px;
-  color: var(--crit-editor-fg-muted);
+  color: var(--crit-editor-fg);
   background: none;
   border: 0;
   border-radius: 3px;
@@ -1938,7 +1938,7 @@ body.dragging { user-select: none; cursor: grabbing; }
   cursor: pointer;
   white-space: nowrap;
 }
-.comment-id-btn:hover { color: var(--crit-editor-fg); }
+.comment-id-btn:hover { text-decoration: underline; }
 .comment-id-btn:focus-visible { outline: 2px solid var(--crit-brand); outline-offset: 1px; }
 
 .reply-body {

@@ -73,7 +73,7 @@ test.describe('Comment ID copy — Git Mode', () => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     const { comment, section } = await openSeeded(page, request);
     const card = section.locator(`.comment-card[data-comment-id="${comment.id}"]`);
-    const btn = card.locator('.comment-id-btn');
+    const btn = card.getByRole('button', { name: 'Copy comment ID ' + comment.id, exact: true });
     await expect(btn).toHaveText(comment.id);
     const cardClass = await card.getAttribute('class');
 
@@ -116,7 +116,7 @@ test.describe('Comment ID copy — Git Mode', () => {
       }, variant);
       const { comment, section } = await openSeeded(page, request);
       const errors = collectErrors(page);
-      const btn = section.locator(`.comment-card[data-comment-id="${comment.id}"] .comment-id-btn`);
+      const btn = section.getByRole('button', { name: 'Copy comment ID ' + comment.id, exact: true });
       await btn.click();
 
       const toast = page.locator('.mini-toast--error');
@@ -137,7 +137,7 @@ test.describe('Comment ID copy — Git Mode', () => {
 
     await loadPage(page);
     await switchToDocumentView(page);
-    const round1Text = await (await mdSection(page)).locator(`.comment-card[data-comment-id="${comment.id}"] .comment-id-btn`).first().textContent();
+    const round1Text = await (await mdSection(page)).getByRole('button', { name: 'Copy comment ID ' + comment.id, exact: true }).textContent();
     expect(round1Text).toBe(comment.id);
 
     await request.post('/api/finish');
@@ -156,6 +156,6 @@ test.describe('Comment ID copy — Git Mode', () => {
     await switchToDocumentView(page);
     const card = (await mdSection(page)).locator('.comment-card').filter({ hasText: 'carried id' }).first();
     await expect(card.locator('.comment-round-badge')).toHaveText('R' + round1);
-    await expect(card.locator('.comment-id-btn')).toHaveText(comment.id);
+    await expect(card.getByRole('button', { name: 'Copy comment ID ' + comment.id, exact: true })).toHaveText(comment.id);
   });
 });

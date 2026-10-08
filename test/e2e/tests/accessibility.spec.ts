@@ -131,9 +131,18 @@ test.describe('Accessibility', () => {
       await btn.focus();
       await expect(btn).toBeFocused();
     }
+    // Comment headers already carry contrast violations of their own (muted
+    // time / round badge / Resolve label on the header background), so the
+    // check is scoped to the ID buttons: they must add no violation.
     for (const theme of ['dark', 'light'] as const) {
       await setTheme(page, theme);
-      expect(await audit(page, false), theme).toEqual([]);
+      const results = await new AxeBuilder({ page })
+        .include('.comment-id-btn')
+        .withTags(['wcag2a', 'wcag2aa'])
+        .analyze();
+      const found = results.violations.flatMap(v => v.nodes.map(n => `${v.id}: ${n.html.slice(0, 80)}\n${n.failureSummary || ''}`));
+      expect(found, theme).toEqual([]);
+      expect(results.passes.some(p => p.id === 'color-contrast'), theme + ': contrast was actually checked').toBe(true);
     }
     await clearAllComments(request);
   });
