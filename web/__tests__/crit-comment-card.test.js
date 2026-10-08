@@ -304,7 +304,9 @@ test('CRIT-04.2 click copies exactly the id, shows "✓ Copied" for 1.5s, announ
       assert.equal(btn.textContent, '✓ Copied');
       assert.equal(status.textContent, 'Copied c_49784e');
       assert.equal(toasts.length, 0);
-      // A second click during the confirmation still copies the id, not the label.
+      // A second click 1s into the confirmation copies the id (not the label)
+      // and restarts the 1.5s confirmation instead of keeping the first timer.
+      mock.timers.tick(1000);
       btn.listeners.click(clickEvent());
       await flush();
       assert.deepEqual(written, ['c_49784e', 'c_49784e']);
