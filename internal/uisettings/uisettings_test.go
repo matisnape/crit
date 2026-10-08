@@ -1,6 +1,7 @@
 package uisettings
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -187,25 +188,20 @@ func TestCRIT02_8_ReadOnlyFileIsNotReplaced(t *testing.T) {
 }
 
 func TestCRIT02_8_FailedWriteLeavesNoTempFile(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("file mode bits")
-	}
 	path := settingsFile(t)
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
+	testutil.WriteFile(t, path, `{"theme":"light"}`)
+	orig := rename
+	rename = func(string, string) error { return errors.New("disk full") }
+	t.Cleanup(func() { rename = orig })
+	if _, err := Save(map[string]any{"theme": "dark"}, false); err == nil || !strings.Contains(err.Error(), path) {
+		t.Fatalf("err = %v, want one naming %s", err, path)
 	}
-	// A directory where the file should be makes the rename fail after the
-	// temp file was written.
-	if err := os.Mkdir(path, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Save(map[string]any{"theme": "dark"}, false); err == nil {
-		t.Fatal("save into a directory succeeded")
-	}
-	entries, _ := os.ReadDir(dir)
+	entries, _ := os.ReadDir(filepath.Dir(path))
 	if len(entries) != 1 {
 		t.Fatalf("temp files left behind: %v", entries)
+	}
+	if data, _ := os.ReadFile(path); string(data) != `{"theme":"light"}` {
+		t.Fatalf("file changed: %s", data)
 	}
 }
 

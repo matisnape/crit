@@ -29,7 +29,7 @@ function freePort(): Promise<number> {
   });
 }
 
-interface Review { proc: ChildProcess; port: number; stderr: () => string }
+interface Review { proc: ChildProcess; port: number; stderr: () => string; client: boolean }
 
 const running: Review[] = [];
 let home = '';
@@ -40,20 +40,23 @@ function tempDir(prefix: string): string {
 }
 
 // Starts a crit daemon (`crit _serve`) in a fresh directory holding one file.
-async function startReview(opts: { file?: string; content?: string; dir?: string; args?: string[] } = {}): Promise<Review> {
+// With client, runs `crit <file>` the way a user does: the client spawns the
+// daemon in the background (its stderr goes to a log file) and blocks.
+async function startReview(opts: { file?: string; content?: string; dir?: string; args?: string[]; client?: boolean } = {}): Promise<Review> {
   const dir = opts.dir ?? tempDir('crit-ui-settings-review-');
   const file = opts.file ?? 'plan.md';
   fs.writeFileSync(path.join(dir, file), opts.content ?? '# Plan\n\n- one\n- two\n\n```go\nfunc main() { fmt.Println("a really long line that keeps going and going and going and going and going") }\n```\n');
   const port = await freePort();
   let err = '';
   const args = opts.args ?? [file];
-  const proc = spawn(critBin(), ['_serve', '--no-open', '--port', String(port), ...args], {
+  const cmd = opts.client ? ['--no-open', '--port', String(port), ...args] : ['_serve', '--no-open', '--port', String(port), ...args];
+  const proc = spawn(critBin(), cmd, {
     cwd: dir,
     env: { ...process.env, HOME: home, USERPROFILE: home, CRIT_NO_UPDATE_CHECK: '1' },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   proc.stderr!.on('data', d => { err += d.toString(); });
-  const review = { proc, port, stderr: () => err };
+  const review = { proc, port, stderr: () => err, client: !!opts.client };
   running.push(review);
   await expect.poll(async () => {
     try { return (await fetch(`http://127.0.0.1:${port}/api/health`)).status; } catch { return 0; }
@@ -64,7 +67,8 @@ async function startReview(opts: { file?: string; content?: string; dir?: string
 async function stopReview(r: Review) {
   if (r.proc.exitCode !== null) return;
   const exited = new Promise(resolve => r.proc.once('exit', resolve));
-  r.proc.kill('SIGTERM');
+  // Ctrl+C on a client also stops the daemon it started.
+  r.proc.kill(r.client ? 'SIGINT' : 'SIGTERM');
   await exited;
 }
 
@@ -179,7 +183,7 @@ test('CRIT-02.2 every Settings-dialog choice survives a daemon restart in anothe
   await expect(page.locator('[data-shortcut-id="next_block"]')).toContainText('y');
 });
 
-test('CRIT-02.3 per-review state stays out of the settings file and out of other reviews', async ({ browser }) => {
+test('CRIT-02.3 per-review state stays out of the settings file and out of reviews on another host name', async ({ browser }) => {
   const a = await startReview();
   const b = await startReview();
   const ctx = await browser.newContext();
@@ -302,7 +306,7 @@ for (const [name, content] of [
   test(`CRIT-02.7 ${name}: crit starts, valid values apply, one warning, file untouched until a change`, async ({ browser }) => {
     fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
     fs.writeFileSync(settingsPath, content);
-    const r = await startReview();
+    const r = await startReview({ client: true });
     const ctx = await browser.newContext({ colorScheme: 'dark' });
     const page = await ctx.newPage();
     await openReview(page, `http://localhost:${r.port}/`);

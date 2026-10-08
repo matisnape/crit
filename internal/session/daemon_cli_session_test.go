@@ -102,29 +102,3 @@ func TestConnectOrStartDaemon_QuietSuppressesStatus(t *testing.T) {
 		t.Fatalf("quiet mode should print nothing, got %q", stderr)
 	}
 }
-
-func TestCRIT02_7_StartingAReviewWarnsOnceAboutInvalidSettingsFile(t *testing.T) {
-	home := t.TempDir()
-	testutil.SetHome(t, home)
-	path := home + "/.crit/ui-settings.json"
-	testutil.WriteFile(t, path, `{"theme":"purple","lineNumbers":"off"}`)
-	before, _ := os.ReadFile(path)
-
-	orig := startDaemonForConnect
-	startDaemonForConnect = func(string, []string) (daemon.SessionEntry, error) {
-		return daemon.SessionEntry{PID: 42, Port: 3001}, nil
-	}
-	t.Cleanup(func() { startDaemonForConnect = orig })
-
-	stderr := captureStderr(t, func() {
-		if _, _, err := connectOrStartDaemon("839f3b4cd5d6", nil, true, "", true); err != nil {
-			t.Fatal(err)
-		}
-	})
-	if strings.Count(stderr, path) != 1 || !strings.Contains(stderr, `"purple"`) {
-		t.Fatalf("stderr = %q, want one warning naming %s and the bad value", stderr, path)
-	}
-	if after, _ := os.ReadFile(path); string(after) != string(before) {
-		t.Fatalf("warning rewrote the file: %s", after)
-	}
-}

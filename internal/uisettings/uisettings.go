@@ -229,6 +229,9 @@ func Reset() error {
 	return nil
 }
 
+// rename is os.Rename; tests swap it to exercise the temp-file cleanup.
+var rename = os.Rename
+
 func writeAtomic(path string, settings map[string]any) error {
 	data, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
@@ -255,7 +258,7 @@ func writeAtomic(path string, settings map[string]any) error {
 		err = cerr
 	}
 	if err == nil {
-		err = os.Rename(tmp.Name(), path)
+		err = rename(tmp.Name(), path)
 	}
 	if err != nil {
 		os.Remove(tmp.Name())
