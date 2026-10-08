@@ -55,42 +55,54 @@ func IsSetting(key string) bool {
 func Validate(key string, value any) error {
 	switch {
 	case enums[key] != nil:
-		s, _ := value.(string)
-		for _, ok := range enums[key] {
-			if s == ok {
-				return nil
-			}
-		}
-		return fmt.Errorf("%s: %s is not one of %s", key, describe(value), strings.Join(enums[key], ", "))
+		return validateEnum(key, value)
 	case bools[key]:
 		if _, ok := value.(bool); !ok {
 			return fmt.Errorf("%s: %s is not true or false", key, describe(value))
 		}
 		return nil
 	case key == "lightPalette" || key == "darkPalette":
-		s, _ := value.(string)
-		if paletteTypes()[s] != strings.TrimSuffix(key, "Palette") {
-			return fmt.Errorf("%s: %s is not a known %s theme", key, describe(value), strings.TrimSuffix(key, "Palette"))
-		}
-		return nil
+		return validatePalette(key, value)
 	case key == "codeFont":
 		if s, ok := value.(string); !ok || len(s) > maxCodeFontLength {
 			return fmt.Errorf("codeFont: %s is not a font-family list of at most %d characters", describe(value), maxCodeFontLength)
 		}
 		return nil
 	case key == "shortcuts":
-		m, ok := value.(map[string]any)
-		if !ok {
-			return fmt.Errorf("shortcuts: %s is not an object", describe(value))
-		}
-		for id, b := range m {
-			if _, ok := b.(string); !ok {
-				return fmt.Errorf("shortcuts.%s: %s is not a key binding", id, describe(b))
-			}
-		}
-		return nil
+		return validateShortcuts(value)
 	}
 	return fmt.Errorf("%s: unknown setting", key)
+}
+
+func validateEnum(key string, value any) error {
+	s, _ := value.(string)
+	for _, ok := range enums[key] {
+		if s == ok {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s: %s is not one of %s", key, describe(value), strings.Join(enums[key], ", "))
+}
+
+func validatePalette(key string, value any) error {
+	mode := strings.TrimSuffix(key, "Palette")
+	if s, _ := value.(string); paletteTypes()[s] != mode {
+		return fmt.Errorf("%s: %s is not a known %s theme", key, describe(value), mode)
+	}
+	return nil
+}
+
+func validateShortcuts(value any) error {
+	m, ok := value.(map[string]any)
+	if !ok {
+		return fmt.Errorf("shortcuts: %s is not an object", describe(value))
+	}
+	for id, b := range m {
+		if _, ok := b.(string); !ok {
+			return fmt.Errorf("shortcuts.%s: %s is not a key binding", id, describe(b))
+		}
+	}
+	return nil
 }
 
 func describe(v any) string {

@@ -231,9 +231,35 @@ func TestCRIT02_4_DeleteResetsToDefaults(t *testing.T) {
 func TestCRIT02_3_PageCarriesTheReviewIdentity(t *testing.T) {
 	uiSettingsHome(t)
 	s, _ := newTestServer(t)
-	s.reviewPath = filepath.Join(t.TempDir(), "reviews", "abc123def456")
-	snap := injectedSnapshot(t, serve(t, s, http.MethodGet, "/", "", nil).Body.String())
-	if snap["review"] != "abc123def456" {
-		t.Fatalf("review = %v", snap["review"])
+	review := func(reviewPath string) any {
+		s.reviewPath = reviewPath
+		return injectedSnapshot(t, serve(t, s, http.MethodGet, "/", "", nil).Body.String())["review"]
+	}
+	root := t.TempDir()
+	a := review(filepath.Join(root, "reviews", "abc123def456"))
+	if a == nil || a == "" || a != review(filepath.Join(root, "reviews", "abc123def456")) {
+		t.Fatalf("review id missing or unstable: %v", a)
+	}
+	if a == review(filepath.Join(root, "reviews", "0123456789ab")) {
+		t.Fatal("two reviews share an id")
+	}
+	// Plan reviews all end in ".../<slug>/.crit"; each must get its own id.
+	planA, planB := review(filepath.Join(root, "plans", "alpha", ".crit")), review(filepath.Join(root, "plans", "beta", ".crit"))
+	if planA == planB {
+		t.Fatalf("plan reviews share id %v", planA)
+	}
+}
+
+func TestCRIT02_9_DeleteRefusesAnyPageRequest(t *testing.T) {
+	path := uiSettingsHome(t)
+	testutil.WriteFile(t, path, `{"theme":"light"}`)
+	s, _ := newTestServer(t)
+	for _, h := range []map[string]string{{"Sec-Fetch-Site": "same-origin"}, {"Origin": "http://localhost:3000"}} {
+		if w := serve(t, s, http.MethodDelete, "/api/ui-settings", "", h); w.Code != http.StatusForbidden {
+			t.Errorf("%v: %d", h, w.Code)
+		}
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("file removed: %v", err)
 	}
 }

@@ -2,6 +2,8 @@ package server
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -47,6 +49,11 @@ func (s *Server) handleUISettings(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, snap)
 	case http.MethodDelete:
+		// A reset is for the CLI and tests; no page script may wipe the file.
+		if r.Header.Get("Sec-Fetch-Site") != "" || r.Header.Get("Origin") != "" {
+			http.Error(w, "Forbidden: resetting settings is CLI-only", http.StatusForbidden)
+			return
+		}
 		if err := uisettings.Reset(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -94,12 +101,14 @@ func pageUISettings(r *http.Request) uisettings.Snapshot {
 }
 
 // injectUISettings embeds the stored settings plus this review's identity
-// (the review folder's key: cwd + branch or args, stable across restarts and
-// ports), which the page uses to keep per-review view state apart.
+// (a hash of the review folder, stable across restarts and ports; plan
+// folders all end in ".crit", so the base name alone is not unique), which
+// the page uses to keep per-review view state apart.
 func (s *Server) injectUISettings(page []byte, r *http.Request) []byte {
 	review := ""
 	if s.reviewPath != "" {
-		review = filepath.Base(s.reviewPath)
+		sum := sha256.Sum256([]byte(filepath.Clean(s.reviewPath)))
+		review = hex.EncodeToString(sum[:6])
 	}
 	data, err := json.Marshal(struct {
 		uisettings.Snapshot
