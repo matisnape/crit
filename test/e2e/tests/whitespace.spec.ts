@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments, loadPage, storedUISettings } from './helpers';
 
 // Git-mode only: the "Ignore whitespace" toggle controls whether code diffs
 // are re-fetched with `&w=1` (server collapses whitespace-only changes). We
@@ -53,29 +53,19 @@ test.describe('Ignore whitespace', () => {
     await expect(toggle).toBeChecked();
   });
 
-  test('toggle persists (checked + cookie) across reload', async ({ page }) => {
+  test('toggle persists (checked + settings file) across reload', async ({ page, request }) => {
     await loadPage(page);
     await page.click('#settingsToggle');
 
     await switchLabel(page).click();
     await expect(page.locator('#ignoreWhitespaceToggle')).toBeChecked();
+    // Saved to the daemon's ~/.crit/ui-settings.json, shared by every review.
+    await expect.poll(async () => (await storedUISettings(request)).ignoreWhitespace).toBe(true);
 
     // Reload and re-open settings.
     await loadPage(page);
     await page.click('#settingsToggle');
 
     await expect(page.locator('#ignoreWhitespaceToggle')).toBeChecked();
-
-    // Setting persisted in the consolidated crit-settings cookie (not localStorage).
-    const stored = await page.evaluate(() => {
-      const match = document.cookie.match(/(?:^|;\s*)crit-settings=([^;]+)/);
-      if (!match) return null;
-      try {
-        return JSON.parse(decodeURIComponent(match[1])).ignoreWhitespace;
-      } catch {
-        return null;
-      }
-    });
-    expect(stored).toBe(true);
   });
 });

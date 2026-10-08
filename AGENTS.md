@@ -43,6 +43,7 @@ crit/
 14. **Centralized review storage** — `~/.crit/reviews/<key>.json` keyed by cwd + branch (git mode) or cwd + args (file mode)
 15. **VCS abstraction** — `vcs.go` defines a backend interface; `git_vcs.go`, `sapling.go`, and `jj.go` are the implementations. Auto-detected, overridable via `--vcs` flag or `vcs` config key. Subcommands not yet threaded through (see TODO at `main.go:1826`).
 16. **Focus mode** — sub-views over the file list: file focus, range focus (`--range A..B`), stacked focus (range layer in a stacked PR). Lives in `focus_*.go` and `/api/focus`.
+17. **Shared UI settings** — every Settings-dialog choice (theme, palettes, code font, code display, content width, hide resolved, ignore whitespace, shortcuts) lives in `~/.crit/ui-settings.json`, owned by the server (`internal/uisettings`) and shared by every review on the machine; browser storage is per host/port, so it cannot be. The server embeds the stored values in each page shell (`<!-- crit:ui-settings -->` → `window.critUISettings`), so the first paint uses them. Global-only: project config never reads or writes it. Per-review state (panel widths/open state, diff scope, viewport, viewed files, drafts) stays in the `crit-settings` cookie / localStorage. On the first page load without the file, the dialog keys of that host's `crit-settings` cookie are imported once. Invalid JSON or values fall back per key with one stderr warning, and the file is only rewritten when a setting changes (atomic temp + rename; a read-only file is left alone and the page shows an error naming it).
 
 <important if="you are writing a plan, design doc, or implementation proposal, or about to commit">
 Do not commit plan files to the repo — keep them as untracked local files (or in `/tmp`). This includes `*-plan.md`, `*-proposal.md`, and other AI-generated design docs. Repo history should contain implementation, not planning artifacts. Exception: test fixtures under `test/` that a test explicitly reads.
@@ -116,6 +117,7 @@ Config keys: `port`, `host`, `no_open`, `share_url`, `quiet`, `output`, `author`
 - `stale_review_days` (default: `14`) — age in days after which the background sweep started by `crit review` / `crit plan` deletes an untouched review; unset or non-positive values use the default. Not included in `crit config --generate` scaffolding.
 - `notify_on_round_ready` (default: `false`) — opt in to a desktop notification when a review round becomes ready for the human. On macOS, install `terminal-notifier` so the notification's click action opens the review URL; without it, clicking falls back to AppleScript `display notification`, which macOS attributes to Script Editor instead of the browser
 - `disable_stats` (default: `false`) — disable session stats recording to `~/.crit/stats.json`
+- UI preferences (the Settings dialog) are **not** config keys: they live in `~/.crit/ui-settings.json` (see "Shared UI settings" above), which no config file can set or override
 - `ignore_patterns` are unioned (global + project both apply); types: `*.ext`, `dir/`, `exact.file`, `path/*.ext`
 - `auto_viewed_patterns` are unioned (global + project both apply); matched client-side against file paths and applied once per launch to auto-mark matching files viewed (collapsed). No runtime default (empty). Plumbed through `/api/config` only — Go does no glob matching.
 - `default_markdown_view` (`"diff"` | `"document"`, default unset = diff in git mode) — initial view for markdown files (Document/Diff toggle) in git mode. Project **overrides** global (scalar, not unioned). Invalid values are ignored with a stderr warning. No CLI flag. Plumbed through `/api/config` only.
@@ -223,12 +225,13 @@ Requires `gh` authenticated and `CRIT_ROUNDTRIP_REPO=<owner>/crit-roundtrip-sand
 
 <important if="you are adding or modifying HTTP API endpoints in server.go">
 
-All routes wrapped with `s.withReady` return 503 until session init completes — except `/api/health` and `/api/qr`.
+All routes wrapped with `s.withReady` return 503 until session init completes — except `/api/health`, `/api/qr` and `/api/ui-settings`.
 
 Session-scoped:
 
 - `GET  /api/health` — liveness probe (no readiness gate; used for daemon health checks); `{status, browser_clients, api_version}` — bump `APIVersion` only for breaking HTTP API changes; missing `api_version` = 0
 - `GET  /api/qr` — QR code for current shared URL
+- `GET|PATCH|DELETE /api/ui-settings` — `~/.crit/ui-settings.json` (no readiness gate; live/preview pages load before the session). GET → `{exists, path, settings}`; PATCH merges only the sent keys (`null` resets one), 400 on an unknown key or value, 500 `{error, path}` when the file cannot be written; DELETE removes the file (all defaults; e2e helpers call it per test)
 - `POST /api/shutdown?pid=<daemon pid>` - graceful stop, same path as SIGTERM; CLI-only (403 on `Sec-Fetch-Site`/`Origin`), 409 when `pid` is another daemon's (checked before readiness, so also during init)
 - `GET  /api/session` — session metadata
 - `GET  /api/config` — `{share_url, hosted_url, delete_token, version, latest_version, ...}`
@@ -319,12 +322,12 @@ crit-web's drift-guard test `test/crit_web/preview_agent_sync_test.exs` fails lo
 
 <important if="you are adding CSS variables or modifying theme.css">
 
-Header has a 3-button theme pill (System / Light / Dark):
+The Settings dialog has a 3-button theme pill (System / Light / Dark):
 
 - No `data-theme` attribute → system preference via `prefers-color-scheme`
 - `data-theme="light"` / `data-theme="dark"` → explicit override
 - CSS vars are set in `:root` (dark fallback), `@media (prefers-color-scheme: light) html:not([data-theme])`, `[data-theme="dark"]`, and `[data-theme="light"]` blocks. **Define every new variable in all four blocks.**
-- Theme choice persisted via `crit-settings` cookie (`theme` key, `"system"` | `"light"` | `"dark"`).
+- Theme choice persisted in `~/.crit/ui-settings.json` (`theme` key, `"system"` | `"light"` | `"dark"`), applied in `<head>` by `crit-ui-settings.js`.
 - Use CSS custom properties from `theme.css` for all colors. Never hardcode hex values.
 </important>
 

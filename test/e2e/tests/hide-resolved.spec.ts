@@ -1,6 +1,7 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
 import {
+  storedUISettings,
   clearAllComments, loadPage, getMdPath, addComment, getReviewFilePath,
   mdSection, switchToDocumentView, mdDocument,
 } from './helpers';
@@ -161,6 +162,8 @@ test.describe('Hide Resolved', () => {
     // Enable hide resolved
     await page.keyboard.press('h');
     await expect(resolvedBlock.first()).toBeHidden();
+    // Saved to the daemon's ~/.crit/ui-settings.json, shared by every review.
+    await expect.poll(async () => (await storedUISettings(request)).hideResolved).toBe(true);
 
     // Reload
     await loadPage(page);
@@ -171,14 +174,5 @@ test.describe('Hide Resolved', () => {
       has: page.locator('.resolved-card'),
     });
     await expect(resolvedBlockAfter.first()).toBeHidden();
-
-    // Verify setting persisted in the consolidated crit-settings cookie
-    const stored = await page.evaluate(() => {
-      const match = document.cookie.match(/(?:^|;\s*)crit-settings=([^;]+)/);
-      if (!match) return null;
-      try { return JSON.parse(decodeURIComponent(match[1])).hideResolved; }
-      catch { return null; }
-    });
-    expect(stored).toBe(true);
   });
 });

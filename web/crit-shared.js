@@ -60,19 +60,11 @@
       + '; path=/; max-age=31536000; SameSite=Strict';
   }
 
-  // The crit-settings cookie is JSON. getCookie URL-decodes for us, so we
-  // hand the raw JSON straight to JSON.parse — same shape as app.js.
   function readThemeFromSettings() {
-    const raw = getCookie('crit-settings');
-    if (!raw) return 'system';
-    try {
-      const parsed = JSON.parse(raw);
-      return (parsed && parsed.theme) || 'system';
-    } catch (_) {
-      return 'system';
-    }
+    return getSetting('theme', 'system') || 'system';
   }
 
+  // Name kept for its callers; the theme now comes from the stored settings.
   function applyThemeFromCookie() {
     const t = readThemeFromSettings();
     const html = document.documentElement;
@@ -92,24 +84,41 @@
     html.setAttribute('data-code-overflow', getSetting('codeOverflow', 'scroll') === 'wrap' ? 'wrap' : 'scroll');
   }
 
-  // Generic crit-settings JSON cookie accessors (mirror app.js semantics).
-  function readSettings() {
+  // Settings-dialog choices live in ~/.crit/ui-settings.json, shared by every
+  // review (window.crit.uiSettings, crit-ui-settings.js). Per-review state
+  // (panel widths and open state, diff scope, viewport) stays in the
+  // crit-settings cookie. Without the store (unit-test sandboxes) everything
+  // falls back to the cookie.
+  function uiStore() {
+    return (typeof window !== 'undefined' && window.crit && window.crit.uiSettings) || null;
+  }
+  function readCookieSettings() {
     const raw = getCookie('crit-settings');
     if (!raw) return {};
     try { return JSON.parse(raw) || {}; }
     catch (_) { return {}; }
   }
-  function writeSettings(obj) {
-    setCookie('crit-settings', JSON.stringify(obj || {}));
+  // Every setting in effect: cookie state plus the stored dialog choices. The
+  // cookie's copies of dialog keys are stale leftovers and are ignored.
+  function readSettings() {
+    const s = readCookieSettings();
+    const store = uiStore();
+    if (!store) return s;
+    store.KEYS.forEach(function (k) { delete s[k]; });
+    return Object.assign(s, store.all());
   }
   function getSetting(key, fallback) {
-    const s = readSettings();
+    const store = uiStore();
+    if (store && store.isSetting(key)) return store.get(key, fallback);
+    const s = readCookieSettings();
     return Object.prototype.hasOwnProperty.call(s, key) ? s[key] : fallback;
   }
   function setSetting(key, value) {
-    const s = readSettings();
+    const store = uiStore();
+    if (store && store.isSetting(key)) return store.set(key, value);
+    const s = readCookieSettings();
     s[key] = value;
-    writeSettings(s);
+    setCookie('crit-settings', JSON.stringify(s));
   }
 
   // ---- Code font ----
@@ -1158,6 +1167,7 @@
     readThemeFromSettings,
     applyThemeFromCookie,
     applyDisplayAttributes,
+    readSettings,
     getSetting,
     setSetting,
     CODE_FONT_PRESETS,

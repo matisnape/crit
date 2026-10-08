@@ -283,37 +283,14 @@
     return self.renderToken(tokens, idx, options);
   };
 
-  // ===== Cookie helpers (persist across random ports on 127.0.0.1) =====
-  function setCookie(name, value) {
-    document.cookie = name + '=' + encodeURIComponent(value) + '; path=/; max-age=31536000; SameSite=Strict';
-  }
-  function getCookie(name) {
-    const match = document.cookie.match('(?:^|; )' + name + '=([^;]*)');
-    return match ? decodeURIComponent(match[1]) : null;
-  }
-
-  // ===== Settings (consolidated cookie) =====
-  // All persisted view preferences live in a single `crit-settings` JSON cookie.
-  // Exception: `crit-templates` stays in its own cookie because it's user-defined
-  // and can be longer than the rest combined.
-  const SETTINGS_COOKIE = 'crit-settings';
-
-  function loadSettings() {
-    const raw = getCookie(SETTINGS_COOKIE);
-    try { return raw ? JSON.parse(raw) : {}; }
-    catch { return {}; }
-  }
-
-  function getSetting(key, fallback) {
-    const v = loadSettings()[key];
-    return v === undefined ? fallback : v;
-  }
-
-  function setSetting(key, value) {
-    const s = loadSettings();
-    s[key] = value;
-    setCookie(SETTINGS_COOKIE, JSON.stringify(s));
-  }
+  // ===== Settings =====
+  // One implementation, in crit-shared.js: Settings-dialog choices are stored
+  // by the server in ~/.crit/ui-settings.json (shared by every review);
+  // per-review view state stays in the `crit-settings` cookie. `crit-templates`
+  // keeps its own cookie because it's user-defined and can be long.
+  function loadSettings() { return window.crit.shared.readSettings(); }
+  function getSetting(key, fallback) { return window.crit.shared.getSetting(key, fallback); }
+  function setSetting(key, value) { return window.crit.shared.setSetting(key, value); }
 
   // Bind Ctrl/Cmd+Enter (submit) and Escape (cancel) to a text input/textarea.
   // opts.stopPropagation defaults to true (matches comment-form keydown behavior).
@@ -7714,10 +7691,9 @@
 
   // ===== Theme =====
   function initTheme() {
-    const saved = getSetting('theme', 'system');
-    applyTheme(saved);
+    renderTheme(getSetting('theme', 'system'));
     window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', function() {
-      if (getSetting('theme', 'system') === 'system') window.applyTheme('system');
+      if (getSetting('theme', 'system') === 'system') renderTheme('system');
     });
   }
 
@@ -7727,6 +7703,11 @@
 
   window.applyTheme = function(choice) {
     setSetting('theme', choice);
+    renderTheme(choice);
+  };
+
+  // Applies a theme without saving it (page load must not rewrite the file).
+  function renderTheme(choice) {
     if (choice === 'light') document.documentElement.setAttribute('data-theme', 'light');
     else if (choice === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
     else document.documentElement.removeAttribute('data-theme');
@@ -7741,16 +7722,19 @@
       mermaid.initialize(mermaidOptions());
       try { mermaid.run(); } catch {}
     }
-  };
+  }
 
   // ===== Width =====
   function initWidth() {
-    const saved = getSetting('width', 'default');
-    applyWidth(saved);
+    renderWidth(getSetting('width', 'default'));
   }
 
   function applyWidth(choice) {
     setSetting('width', choice);
+    renderWidth(choice);
+  }
+
+  function renderWidth(choice) {
     if (choice === 'compact') document.documentElement.setAttribute('data-width', 'compact');
     else if (choice === 'wide') document.documentElement.setAttribute('data-width', 'wide');
     else document.documentElement.setAttribute('data-width', 'default');

@@ -25,12 +25,10 @@
     return palette;
   }
 
-  // The crit-settings cookie (JSON), read directly: pages call applySaved()
-  // from <head>, before crit-shared.js has loaded.
+  // The stored settings (crit-ui-settings.js, loaded before this in <head>).
   function savedSettings() {
-    const match = typeof document !== 'undefined' && document.cookie.match(/(?:^|;\s*)crit-settings=([^;]*)/);
-    if (!match) return {};
-    try { return JSON.parse(decodeURIComponent(match[1])) || {}; } catch (_) { return {}; }
+    const store = typeof window !== 'undefined' && window.crit && window.crit.uiSettings;
+    return store ? store.all() : {};
   }
 
   // Theme <html> with the saved palette (window.crit.palettes, from

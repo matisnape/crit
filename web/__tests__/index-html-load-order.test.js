@@ -79,8 +79,14 @@ test('review and theme preview apply saved palettes synchronously before first p
     const head = source.match(/<head>([\s\S]*?)<\/head>/)[1];
     const palettes = head.indexOf('<script src="pierre/palettes.js"></script>');
     const paletteRuntime = head.indexOf('<script src="crit-theme-palette.js"></script>');
-    const applySaved = head.indexOf('themePalette.applySaved()');
+    const applySaved = Math.max(head.indexOf('themePalette.applySaved()'), head.indexOf('uiSettings.applyTheme()'));
     assert.ok(palettes >= 0 && paletteRuntime > palettes && applySaved > paletteRuntime,
       filename + ' must load palettes and runtime before applying the saved theme in head');
+    // CRIT-02.5: the server embeds the stored settings at the marker, and the
+    // store reads them before the theme is applied.
+    const marker = head.indexOf('<!-- crit:ui-settings -->');
+    const store = head.indexOf('<script src="crit-ui-settings.js"></script>');
+    assert.ok(marker >= 0 && store > marker && applySaved > store,
+      filename + ' must embed and load the stored settings before applying the theme');
   }
 });

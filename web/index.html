@@ -14,10 +14,13 @@
 <link rel="stylesheet" href="theme.css">
 <link rel="stylesheet" href="crit-palette.css">
 <link rel="stylesheet" href="style.css">
-<!-- Theme palette before first paint, in every mode (review, live, preview). -->
+<!-- Stored settings (~/.crit/ui-settings.json, embedded by the server) and the
+     theme + palette before first paint, in every mode (review, live, preview). -->
+<!-- crit:ui-settings -->
+<script src="crit-ui-settings.js"></script>
 <script src="pierre/palettes.js"></script>
 <script src="crit-theme-palette.js"></script>
-<script>window.crit.themePalette.applySaved();</script>
+<script>window.crit.uiSettings.applyTheme();</script>
 </head>
 <body>
 

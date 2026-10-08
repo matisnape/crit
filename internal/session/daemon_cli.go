@@ -11,6 +11,7 @@ import (
 	"github.com/tomasz-tomczyk/crit/internal/browser"
 	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
+	"github.com/tomasz-tomczyk/crit/internal/uisettings"
 )
 
 var startDaemonForConnect = daemon.StartDaemon
@@ -43,6 +44,8 @@ func connectOrStartDaemon(key string, args []string, noOpen bool, openCmd string
 	if err != nil {
 		return daemon.SessionEntry{}, false, err
 	}
+	// The daemon's own stderr goes to its log file; say it where the user looks.
+	uisettings.WarnIfInvalid(os.Stderr)
 	if !quiet {
 		fmt.Fprintf(os.Stderr, "Started crit daemon at %s (session %s, PID %d)\n", entry.BaseURL(), key, entry.PID)
 		HintMissingIntegrations()

@@ -1,8 +1,13 @@
 import { test, expect } from '@playwright/test';
+import { resetUISettings, storedUISettings } from './helpers';
+
+test.beforeEach(async ({ request }) => {
+  await resetUISettings(request);
+});
 
 // /themes: fixed samples for flipping through the bundled themes.
 test.describe('Theme preview page', () => {
-  test('switches themes with the keyboard and saves the choice', async ({ page, context }) => {
+  test('switches themes with the keyboard and saves the choice', async ({ page, request }) => {
     await page.goto('/themes#dark/dracula');
     const html = page.locator('html');
     await expect(html).toHaveAttribute('data-crit-palette', 'dracula');
@@ -20,8 +25,7 @@ test.describe('Theme preview page', () => {
 
     await page.locator('#useTheme').click();
     await expect(page.locator('#useTheme')).toBeDisabled();
-    const cookie = (await context.cookies()).find(c => c.name === 'crit-settings');
-    expect(JSON.parse(decodeURIComponent(cookie!.value)).darkPalette).toBe(next);
+    await expect.poll(async () => (await storedUISettings(request)).darkPalette).toBe(next);
   });
 
   test('light and dark lists only offer their own themes', async ({ page }) => {
@@ -49,7 +53,7 @@ test.describe('Theme preview page', () => {
     await expect(page.locator('#previewDiff [data-line]').first()).toBeVisible();
   });
 
-  test('follows display settings and edits them in the settings dialog', async ({ page, context }) => {
+  test('follows display settings and edits them in the settings dialog', async ({ page, request }) => {
     await page.goto('/themes#dark/tokyo-night');
     const pre = page.locator('#previewDiff pre').first();
     await expect(pre).toBeVisible();
@@ -66,8 +70,7 @@ test.describe('Theme preview page', () => {
     await expect(page.locator('html')).toHaveAttribute('data-crit-palette', 'nord');
     await page.keyboard.press('Escape');
 
-    const settings = JSON.parse(decodeURIComponent((await context.cookies()).find(c => c.name === 'crit-settings')!.value));
-    expect(settings).toMatchObject({ lineNumbers: 'off', codeOverflow: 'wrap', darkPalette: 'nord' });
+    await expect.poll(() => storedUISettings(request)).toMatchObject({ lineNumbers: 'off', codeOverflow: 'wrap', darkPalette: 'nord' });
     // Saved settings apply on the next visit too.
     await page.reload();
     await expect(page.locator('#previewDiff pre').first()).toHaveAttribute('data-disable-line-numbers', '');

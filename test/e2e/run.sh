@@ -70,7 +70,7 @@ fi
 # developer's real ~/.crit/ui-settings.json (shared by every review on the
 # machine) so the run fails if any of them reached it anyway.
 REAL_UI_SETTINGS="$HOME/.crit/ui-settings.json"
-ui_settings_fingerprint() { cksum < "$REAL_UI_SETTINGS" 2>/dev/null || echo absent; }
+ui_settings_fingerprint() { cksum 2>/dev/null < "$REAL_UI_SETTINGS" || echo absent; }
 UI_SETTINGS_BEFORE=$(ui_settings_fingerprint)
 
 # Kill any stale processes on our test ports before starting fresh
