@@ -911,10 +911,12 @@
     // Measure actual header height and set CSS variable for sticky offsets
     function updateHeaderHeight() {
       const h = document.querySelector('.header');
-      if (h) document.documentElement.style.setProperty('--header-height', h.getBoundingClientRect().height + 'px');
+      // offsetHeight: CSS px, unaffected by the interface scale's zoom.
+      if (h) document.documentElement.style.setProperty('--header-height', h.offsetHeight + 'px');
     }
     updateHeaderHeight();
-    window.addEventListener('resize', updateHeaderHeight);
+    // The header wraps to two rows when the window (or a larger scale) leaves too little width.
+    new ResizeObserver(updateHeaderHeight).observe(document.querySelector('.header'));
 
     showFilesMessage('Loading...');
 
@@ -1591,9 +1593,9 @@
       const rect = activeEl.getBoundingClientRect();
       const panelRect = panel.getBoundingClientRect();
       if (rect.top < panelRect.top) {
-        panel.scrollTop += rect.top - panelRect.top;
+        panel.scrollTop += window.crit.shared.cssPx(rect.top - panelRect.top);
       } else if (rect.bottom > panelRect.bottom) {
-        panel.scrollTop += rect.bottom - panelRect.bottom;
+        panel.scrollTop += window.crit.shared.cssPx(rect.bottom - panelRect.bottom);
       }
     }
   }
@@ -2299,7 +2301,8 @@
       if (seq !== pierreAlignSeq) return;
       const rootRect = root.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
-      const offset = elRect.top - rootRect.top - (root.clientHeight - elRect.height) / 2;
+      const cssPx = window.crit.shared.cssPx;
+      const offset = cssPx(elRect.top - rootRect.top) - (root.clientHeight - cssPx(elRect.height)) / 2;
       if (Math.abs(offset) < 2 || frames++ >= 12) return;
       // Make each layout correction immediate instead of starting overlapping
       // browser scroll animations during the bounded alignment loop.
@@ -4408,9 +4411,11 @@
       const computedStyle = window.getComputedStyle(textarea);
       const lineHeight = parseFloat(computedStyle.lineHeight) || 22.4;
       const paddingTop = parseFloat(computedStyle.paddingTop) || 10;
-      const cursorY = textareaRect.top + paddingTop + (lineNumber * lineHeight) - textarea.scrollTop;
-      dropdown.style.left = textareaRect.left + 'px';
-      dropdown.style.width = textareaRect.width + 'px';
+      // The rect is screen px; the computed style and scrollTop are already CSS px.
+      const cssPx = window.crit.shared.cssPx;
+      const cursorY = cssPx(textareaRect.top) + paddingTop + (lineNumber * lineHeight) - textarea.scrollTop;
+      dropdown.style.left = cssPx(textareaRect.left) + 'px';
+      dropdown.style.width = cssPx(textareaRect.width) + 'px';
       dropdown.style.top = cursorY + 'px';
 
       dropdown.innerHTML = '';
@@ -7294,7 +7299,7 @@
   function reviewScrollerTop() {
     const scroller = reviewScroller();
     if (scroller !== window) return scroller.getBoundingClientRect().top;
-    return document.querySelector('.header')?.offsetHeight || 49;
+    return document.querySelector('.header')?.getBoundingClientRect().bottom || 49;
   }
 
   // Scroll the review list so `el` sits `offset` px below its top edge.
@@ -7302,7 +7307,7 @@
     const scroller = reviewScroller();
     const delta = el.getBoundingClientRect().top - reviewScrollerTop() - offset;
     if (scroller === window) window.scrollTo({ top: window.scrollY + delta, behavior: behavior });
-    else scroller.scrollTo({ top: scroller.scrollTop + delta, behavior: behavior });
+    else scroller.scrollTo({ top: scroller.scrollTop + window.crit.shared.cssPx(delta), behavior: behavior });
   }
 
   let tocScrollHandler = null;
@@ -7466,8 +7471,9 @@
     const nodes = mermaidOverlayNodes();
     if (!nodes.viewport) return;
     const rect = nodes.viewport.getBoundingClientRect();
-    const px = clientX - rect.left;
-    const py = clientY - rect.top;
+    // Pointer and rect are screen px; the canvas translate is CSS px.
+    const px = window.crit.shared.cssPx(clientX - rect.left);
+    const py = window.crit.shared.cssPx(clientY - rect.top);
     const next = Math.min(MERMAID_ZOOM_MAX, Math.max(MERMAID_ZOOM_MIN, mermaidOverlayState.scale * factor));
     if (next === mermaidOverlayState.scale) return;
     const ratio = next / mermaidOverlayState.scale;
@@ -7641,7 +7647,8 @@
       try { nodes.viewport.setPointerCapture(e.pointerId); } catch { /* noop */ }
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (activePointers.size === 1) {
-        panAnchor = { x: e.clientX - mermaidOverlayState.x, y: e.clientY - mermaidOverlayState.y };
+        const cssPx = window.crit.shared.cssPx;
+        panAnchor = { x: cssPx(e.clientX) - mermaidOverlayState.x, y: cssPx(e.clientY) - mermaidOverlayState.y };
         nodes.viewport.classList.add('panning');
       } else {
         panAnchor = null;
@@ -7665,8 +7672,8 @@
         return;
       }
       if (panAnchor) {
-        mermaidOverlayState.x = e.clientX - panAnchor.x;
-        mermaidOverlayState.y = e.clientY - panAnchor.y;
+        mermaidOverlayState.x = window.crit.shared.cssPx(e.clientX) - panAnchor.x;
+        mermaidOverlayState.y = window.crit.shared.cssPx(e.clientY) - panAnchor.y;
         mermaidOverlayApply();
       }
     });
@@ -8575,7 +8582,7 @@
     // Slide distance = the panel's own width, which the user can resize.
     // The negative margin shifts the panel without changing its width, so
     // this measures correctly in both directions.
-    const w = panel.getBoundingClientRect().width;
+    const w = window.crit.shared.cssPx(panel.getBoundingClientRect().width);
     if (w > 0) document.body.style.setProperty('--file-tree-width', w + 'px');
     if (animate) startFileTreeAnimation();
     document.body.classList.toggle('file-tree-collapsed', collapsed);
@@ -8598,7 +8605,7 @@
     if (isStoryMobileRail()) {
       document.body.classList.toggle('crit-story-rail-open', !collapsed);
     } else {
-      const w = rail.getBoundingClientRect().width;
+      const w = window.crit.shared.cssPx(rail.getBoundingClientRect().width);
       if (w > 0) document.body.style.setProperty('--story-rail-width', w + 'px');
       if (animate) {
         document.body.classList.add('story-rail-anim');
@@ -8645,7 +8652,7 @@
   function setCommentsPanelCollapsed(collapsed, animate) {
     const panel = document.getElementById('commentsPanel');
     if (!panel) return;
-    const w = panel.getBoundingClientRect().width;
+    const w = window.crit.shared.cssPx(panel.getBoundingClientRect().width);
     if (w > 0) document.body.style.setProperty('--comments-panel-width', w + 'px');
     if (animate) startCommentsPanelAnimation();
     panel.classList.toggle('comments-panel-hidden', collapsed);
@@ -8738,7 +8745,7 @@
     if (eligible.length === 0) return;
 
     const header = document.querySelector('.header');
-    const headerHeight = header ? header.offsetHeight : 52;
+    const headerHeight = header ? header.getBoundingClientRect().height : 52;
 
     // Keep the current position in the full order even when that comment becomes
     // hidden, then scan in the requested direction for the next eligible entry.

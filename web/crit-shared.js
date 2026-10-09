@@ -773,7 +773,7 @@
 
     function onMove(ev) {
       if (ev.pointerId !== activePointerId) return;
-      var w = computeResizeDelta(startW, startX, ev.clientX, edge, min);
+      var w = computeResizeDelta(startW, startX, cssPx(ev.clientX), edge, min);
       panel.style.width = w + 'px';
       lastWidth = w;
     }
@@ -794,8 +794,8 @@
       if (e.button !== 0) return;
       e.preventDefault();
       activePointerId = e.pointerId;
-      startX = e.clientX;
-      startW = panel.getBoundingClientRect().width;
+      startX = cssPx(e.clientX);
+      startW = cssPx(panel.getBoundingClientRect().width);
       lastWidth = startW;
       try { handle.setPointerCapture(e.pointerId); } catch (_) {}
       handle.classList.add('dragging');
@@ -809,7 +809,7 @@
       e.preventDefault();
       var dir = edge === 'left' ? -1 : 1;
       var sign = e.key === 'ArrowRight' ? 1 : -1;
-      var current = panel.getBoundingClientRect().width;
+      var current = cssPx(panel.getBoundingClientRect().width);
       var w = Math.max(min, current + sign * dir * 16);
       panel.style.width = w + 'px';
       if (settingKey) {
@@ -1176,8 +1176,16 @@
     }
   }
 
+  // The Settings interface scale is a CSS zoom on <html>: getBoundingClientRect
+  // and pointer coordinates are screen px, scrollTop and style lengths CSS px.
+  function cssPx(px) {
+    const ui = window.crit && window.crit.uiSettings;
+    return ui ? px * 100 / ui.scale() : px;
+  }
+
   window.crit = window.crit || {};
   window.crit.shared = {
+    cssPx,
     pathCompare,
     escapeHTML,
     fetchJSON,

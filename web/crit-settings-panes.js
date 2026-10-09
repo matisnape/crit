@@ -546,6 +546,17 @@
     });
     html += '</div></div>';
 
+    // Interface scale (both modes): a CSS zoom on crit's own interface.
+    var ui = window.crit && window.crit.uiSettings;
+    var currentScale = ui ? ui.scale() : 100;
+    html += '<div class="settings-display-row">';
+    html += '<label class="settings-display-label" for="uiScaleSelect">Interface scale</label>';
+    html += '<select class="settings-select" id="uiScaleSelect">';
+    (ui ? ui.SCALES : [100]).forEach(function (n) {
+      html += '<option value="' + n + '"' + (n === currentScale ? ' selected' : '') + '>' + n + '%</option>';
+    });
+    html += '</select></div>';
+
     if (opts.mode !== 'live') {
       // --crit-font-mono drives code and diffs in code-review mode. The server
       // only sends installed families which pass its code-monospace check;
@@ -743,6 +754,14 @@
       });
     });
     updatePillIndicator(pane, 'settingsThemeIndicator', ['system', 'light', 'dark'], currentTheme);
+
+    var scaleSelect = pane.querySelector('#uiScaleSelect');
+    if (scaleSelect) {
+      scaleSelect.addEventListener('change', function () {
+        setSetting('scale', Number(scaleSelect.value));
+        if (window.crit.uiSettings) window.crit.uiSettings.applyScale();
+      });
+    }
 
     var fontSelect = pane.querySelector('#codeFontSelect');
     var fontCustomRow = pane.querySelector('#codeFontCustomRow');

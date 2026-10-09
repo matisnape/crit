@@ -1,5 +1,5 @@
 import { test, expect, type Page, type ConsoleMessage } from '@playwright/test';
-import { execFile, spawn, type ChildProcess } from 'child_process';
+import { execFile, execFileSync, spawn, type ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as net from 'net';
 import * as os from 'os';
@@ -585,5 +585,89 @@ test('CRIT-02.12 HTML preview and code review share the stored theme', async ({ 
 
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await ctx.close();
+});
+
+// ----- Interface scale (CRIT-03) -----
+
+const zoom = (page: Page) => page.evaluate(() => getComputedStyle(document.documentElement).zoom);
+
+test('CRIT-03.6 a scale chosen in one review opens the next review at that scale', async ({ browser }) => {
+  const a = await startReview();
+  const b = await startReview();
+  const ctx = await browser.newContext();
+  const pageA = await ctx.newPage();
+  await openReview(pageA, `http://localhost:${a.port}/`);
+  await openSettings(pageA);
+  await pageA.getByLabel('Interface scale').selectOption('90');
+  await expect.poll(() => zoom(pageA)).toBe('0.9');
+  await expect.poll(() => stored()).toEqual({ scale: 90 });
+
+  const pageB = await ctx.newPage();
+  await openReview(pageB, `http://127.0.0.1:${b.port}/`);
+  expect(await zoom(pageB)).toBe('0.9');
+  await openSettings(pageB);
+  await expect(pageB.getByLabel('Interface scale')).toHaveValue('90');
+  await ctx.close();
+});
+
+for (const bad of ['300', '0', '-5', '"big"']) {
+  test(`CRIT-03.7 a stored scale of ${bad} shows the page at 100%`, async ({ page }) => {
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(settingsPath, `{"scale": ${bad}}`);
+    const r = await startReview();
+    await openReview(page, `http://localhost:${r.port}/`);
+    expect(await zoom(page)).toBe('1');
+    await openSettings(page);
+    await expect(page.getByLabel('Interface scale')).toHaveValue('100');
+  });
+}
+
+test('CRIT-03.4 at 125% in 1280x800 long paths and long lines cause no page scrollbar and the header controls fit', async ({ browser }) => {
+  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+  fs.writeFileSync(settingsPath, '{"scale": 125}');
+  // A git repo on a long branch, with a long file path holding a long line.
+  const dir = tempDir('crit-ui-scale-');
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, env: critEnv() });
+  git('init', '-q', '-b', 'main');
+  git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'base');
+  git('checkout', '-q', '-b', 'feature/a-really-long-branch-name-for-the-header-chip');
+  const deep = 'services/notification-delivery-pipeline/internal/transport/websocket-fanout-coordinator';
+  fs.mkdirSync(path.join(dir, deep), { recursive: true });
+  fs.writeFileSync(path.join(dir, deep, 'subscription_lifecycle_manager_with_retries.go'),
+    'package main\n\nfunc main() { println("' + 'a very long line '.repeat(40) + '") }\n');
+  git('add', '.');
+  git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'feature');
+  const r = await startReview({ dir, args: [] });
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await ctx.newPage();
+  await openReview(page, `http://localhost:${r.port}/`);
+  expect(await zoom(page)).toBe('1.25');
+
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+  // Every visible header control is inside the window, overlaps no other, and takes clicks.
+  const problems = await page.evaluate(() => {
+    const out: string[] = [];
+    const controls = Array.from(document.querySelectorAll('.header button, .header select, .header [role="button"]'))
+      .filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden'; })
+      .filter(el => !el.parentElement!.closest('.header button, .header [role="button"]'));
+    const rects = controls.map(el => el.getBoundingClientRect());
+    controls.forEach((el, i) => {
+      const r = rects[i];
+      const name = el.id || el.className;
+      if (r.left < 0 || r.right > window.innerWidth + 0.5) out.push(`${name} outside the window: ${r.left}-${r.right}`);
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      if (!hit || !(hit === el || el.contains(hit))) out.push(`${name} covered by ${hit && (hit.id || hit.className)}`);
+      for (let j = i + 1; j < controls.length; j++) {
+        const o = rects[j];
+        if (r.left < o.right - 0.5 && o.left < r.right - 0.5 && r.top < o.bottom - 0.5 && o.top < r.bottom - 0.5) {
+          out.push(`${name} overlaps ${controls[j].id || controls[j].className}`);
+        }
+      }
+    });
+    return out;
+  });
+  expect(problems).toEqual([]);
   await ctx.close();
 });

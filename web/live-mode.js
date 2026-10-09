@@ -160,7 +160,7 @@
     var commentsPanel = document.getElementById('commentsPanel');
     if (commentsPanel) {
       commentsPanel.classList.remove('comments-panel-hidden');
-      var cw = commentsPanel.getBoundingClientRect().width;
+      var cw = window.crit.shared.cssPx(commentsPanel.getBoundingClientRect().width);
       if (cw > 0) document.body.style.setProperty('--comments-panel-width', cw + 'px');
     }
 
@@ -171,7 +171,7 @@
     // panel boundary in some viewports.
     var headerEl = document.querySelector('.header');
     if (headerEl) {
-      var hh = headerEl.getBoundingClientRect().height;
+      var hh = headerEl.offsetHeight; // CSS px, unaffected by the interface scale's zoom
       document.documentElement.style.setProperty('--header-height', hh + 'px');
       document.documentElement.style.setProperty('--crit-header-height', hh + 'px');
     }
@@ -2110,8 +2110,9 @@
     var iframe = els.iframe;
     if (!iframe) return;
     var r = iframe.getBoundingClientRect();
-    var x = r.left + ((pointer && pointer.x) || 0);
-    var y = r.top + ((pointer && pointer.y) || 0);
+    var cssPx = window.crit.shared.cssPx;
+    var x = cssPx(r.left + ((pointer && pointer.x) || 0));
+    var y = cssPx(r.top + ((pointer && pointer.y) || 0));
     var wrap = document.createElement('div');
     wrap.className = 'crit-live-ancestor-menu-host';
     wrap.style.cssText = 'position:fixed;left:' + x + 'px;top:' + y + 'px;z-index:2147483600;visibility:hidden;';
@@ -2121,8 +2122,8 @@
       x: x, y: y,
       width: wrap.offsetWidth,
       height: wrap.offsetHeight,
-      vw: window.innerWidth,
-      vh: window.innerHeight,
+      vw: cssPx(window.innerWidth),
+      vh: cssPx(window.innerHeight),
       pad: 8,
     });
     wrap.style.left = clamped.x + 'px';
@@ -2792,8 +2793,8 @@
       var t = tooltipMod.composeRoundTooltip({ round: state.currentRound, pins: allPins });
       tip.textContent = 'Round ' + t.round + '. ' + t.carried + ' carried, ' + t.resolved + ' resolved.';
       var r = btn.getBoundingClientRect();
-      tip.style.left = r.left + 'px';
-      tip.style.top  = (r.bottom + 6) + 'px';
+      tip.style.left = window.crit.shared.cssPx(r.left) + 'px';
+      tip.style.top  = (window.crit.shared.cssPx(r.bottom) + 6) + 'px';
       tip.classList.add('crit-live-round-tooltip--open');
     }
     function hide() { tip.classList.remove('crit-live-round-tooltip--open'); }
