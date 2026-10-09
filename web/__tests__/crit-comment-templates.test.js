@@ -204,3 +204,17 @@ test('CRIT-06.3 when the file cannot be read, a delete sends nothing and shows a
   assert.ok(toasts[0].msg.includes('/home/u/.crit/ui-settings.json'));
   assert.equal(bar.children.length, 1, 'the template is still offered');
 });
+
+test('CRIT-06.3 an edit that fails does not stop later edits in the same tab', async () => {
+  var sb = sandboxWithStore({ templates: [] });
+  var store = sb.win.crit.uiSettings;
+  var realSet = store.set;
+  store.set = function () {
+    store.set = realSet;
+    return Promise.reject(new Error('boom'));
+  };
+  var bar = sb.win.crit.commentTemplates.buildTemplateBar({ onInsert: function () {} });
+  await Promise.resolve(bar._saveNew('X')).catch(function () {});
+  await bar._saveNew('Y');
+  assert.deepEqual(sb.patches, [{ templates: ['Y'] }]);
+});
