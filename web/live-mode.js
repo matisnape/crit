@@ -2392,7 +2392,11 @@
     if (threadScrollAPI && threadScrollAPI.scrollThreadToPin) {
       threadScrollAPI.scrollThreadToPin(document, pinId);
     }
-    // Add transient highlight on the row.
+    highlightThreadRow(pinId);
+  }
+
+  // Transient highlight on a pin's row in the comments panel.
+  function highlightThreadRow(pinId) {
     var sel = '[data-comment-id="' + String(pinId).replace(/"/g, '\\"') + '"]';
     var row = document.querySelector(sel);
     if (row && row.classList) {
@@ -2402,6 +2406,20 @@
       }, 1500);
     }
   }
+
+  // A comment ID link in comment text, or an edited #<id> address,
+  // focuses that pin (CRIT-05).
+  document.addEventListener('click', function (e) {
+    var ref = e.target.closest && e.target.closest('a.comment-ref');
+    if (!ref) return;
+    e.preventDefault();
+    var pin = lookupPin(ref.dataset.refId);
+    if (pin) openPinAndFocus(pin);
+  });
+  window.addEventListener('hashchange', function () {
+    var pin = lookupPin(parsePinFragment());
+    if (pin) openPinAndFocus(pin);
+  });
 
   // Re-anchor click delegation: armed when the user clicks "Re-anchor here?".
   document.addEventListener('click', function (ev) {
@@ -2630,10 +2648,12 @@
       cardHighlightTimer = null;
       try { postToAgent({ type: 'clear-highlight' }); } catch (_) { /* noop */ }
     }
+    if (!state.commentsPanelOpen && panelCtl) panelCtl.applyCommentsPanelOpen(true);
     var threadScrollAPI = window.crit && window.crit.live && window.crit.live.threadScroll;
     if (threadScrollAPI && threadScrollAPI.scrollThreadToPin) {
       try { threadScrollAPI.scrollThreadToPin(document, pin.id); } catch (_) { /* noop */ }
     }
+    highlightThreadRow(pin.id);
     var anchor = pin.dom_anchor || pin.domAnchor;
     if (anchor && anchor.css_selector) {
       try { postToAgent({ type: 'keep-highlight', selector: anchor.css_selector, scroll: true }); } catch (_) { /* noop */ }

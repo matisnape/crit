@@ -93,3 +93,20 @@ test('class constants are stable strings', () => {
   assert.equal(helpers.COMMENT_BODY_CLASS, 'comment-body');
   assert.equal(helpers.COMMENT_ACTIONS_CLASS, 'comment-actions');
 });
+
+// ===== splitCommentRefs (CRIT-05) =====
+{
+  const { splitCommentRefs } = require('../crit-comment-card-helpers.js');
+  const known = new Set(['c_49784e', 'r_bdbbe2', 'rp_0e21c6']);
+  const exists = function (id) { return known.has(id); };
+
+  test('CRIT-05.5 splits existing c_/r_/rp_ IDs out of plain text', () => {
+    assert.deepEqual(splitCommentRefs('See c_49784e, r_bdbbe2 and rp_0e21c6.', exists), [
+      'See ', { id: 'c_49784e' }, ', ', { id: 'r_bdbbe2' }, ' and ', { id: 'rp_0e21c6' }, '.',
+    ]);
+  });
+
+  test('CRIT-05.6 leaves unknown IDs and IDs inside longer words as text', () => {
+    assert.equal(splitCommentRefs('c_000000 xc_49784e c_49784ez c_49784e_x', exists), null);
+  });
+}

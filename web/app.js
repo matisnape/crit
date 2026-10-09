@@ -36,93 +36,73 @@
     return '<span class="file-ref">' + escapeHtml(path) + '</span>';
   };
 
-  // Override code_inline so backtick-wrapped comment IDs render as the same chip.
-  const defaultCodeInline = commentMd.renderer.rules.code_inline || function(tokens, idx, options, _env, self) {
-    return self.renderToken(tokens, idx, options);
-  };
-  commentMd.renderer.rules.code_inline = function(tokens, idx, options, env, self) {
-    const content = tokens[idx].content;
-    if (/^(c|r|rp)_[a-f0-9]{6,}$/.test(content)) {
-      return '<span class="comment-ref comment-ref-code" data-ref-id="' + escapeHtml(content) + '" tabindex="0" role="link">' + escapeHtml(content) + '</span>';
+  // ===== Comment ID links (#c_…, #r_…, #rp_…) =====
+  // An ID in the address or in comment text jumps to that comment or reply.
+  // Text IDs become <a href="#id"> links (only IDs that exist, never inside
+  // code); following one changes the hash, and the hashchange listener jumps.
+  const COMMENT_ID_HASH = /^#((?:c|r|rp)_[a-f0-9]{6,})$/;
+
+  // { filePath ('' = review-level), comment, replyId } for an ID, or null.
+  function findCommentTarget(id) {
+    const lists = files.map(function(f) { return { path: f.path, comments: f.comments || [] }; });
+    lists.push({ path: '', comments: reviewComments || [] });
+    for (const list of lists) {
+      for (const c of list.comments) {
+        if (c.id === id) return { filePath: list.path, comment: c, replyId: null };
+        if ((c.replies || []).some(function(r) { return r.id === id; })) {
+          return { filePath: list.path, comment: c, replyId: id };
+        }
+      }
     }
-    return defaultCodeInline(tokens, idx, options, env, self);
-  };
+    return null;
+  }
 
   function linkifyCommentRefsInDom(el) {
-    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
-    const textNodes = [];
-    let node;
-    while ((node = walker.nextNode())) {
-      // skip text inside code/pre elements and already-linked chips
-      if (node.parentNode.closest('code, pre, .comment-ref')) continue;
-      textNodes.push(node);
-    }
-    const re = /((?:c|r|rp)_[a-f0-9]{6,})/g;
-    textNodes.forEach(function(tn) {
-      if (!re.test(tn.nodeValue)) { re.lastIndex = 0; return; }
-      re.lastIndex = 0;
-      const frag = document.createDocumentFragment();
-      let last = 0, m;
-      while ((m = re.exec(tn.nodeValue)) !== null) {
-        if (m.index > last) frag.appendChild(document.createTextNode(tn.nodeValue.slice(last, m.index)));
-        const span = document.createElement('span');
-        span.className = 'comment-ref';
-        span.dataset.refId = m[1];
-        span.textContent = m[1];
-        span.tabIndex = 0;
-        span.setAttribute('role', 'link');
-        frag.appendChild(span);
-        last = m.index + m[0].length;
-      }
-      if (last < tn.nodeValue.length) frag.appendChild(document.createTextNode(tn.nodeValue.slice(last)));
-      tn.parentNode.replaceChild(frag, tn);
-    });
+    window.crit.commentCardHelpers.linkifyCommentRefs(el, function(id) { return !!findCommentTarget(id); });
   }
 
-  // Scroll/expand/flash a comment card located anywhere in the document, given just its id.
-  // Distinct from scrollToComment(commentId, filePath) below — that one needs filePath context.
-  function scrollToCommentRef(id) {
-    if (pierreViewActive()) {
-      const owner = files.find(function(f) {
-        return (f.comments || []).some(function(c) { return c.id === id; });
-      });
-      if (owner) pierreJumpToComment(id, owner.path, flashCommentRefCard);
-      return;
-    }
-    // Story view: the card is in the chapter pane when its chapter is shown.
-    const card = document.querySelector('.comment-card[data-comment-id="' + CSS.escape(id) + '"]');
-    if (!card) return;
-    flashCommentRefCard(card);
-    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
-
-  function flashCommentRefCard(card) {
-    const id = card.dataset.commentId;
+  // Expand the card, scroll the card (or its reply) into view and flash it.
+  function flashCommentRefTarget(card, replyId) {
     if (card.classList.contains('collapsed')) {
-      card.classList.remove('collapsed');
-      if (typeof commentCollapseOverrides !== 'undefined') commentCollapseOverrides[id] = false;
+      const toggle = card.querySelector('.comment-collapse-btn');
+      if (toggle) toggle.click(); else card.classList.remove('collapsed');
     }
-    card.classList.remove('comment-ref-flash');
-    void card.offsetWidth;
-    card.classList.add('comment-ref-flash');
-    card.addEventListener('animationend', function() {
-      card.classList.remove('comment-ref-flash');
+    const el = (replyId && card.querySelector('[data-reply-id="' + CSS.escape(replyId) + '"]')) || card;
+    const list = document.getElementById('filesContainer');
+    if (list && list.contains(el)) scrollPierreElementIntoView(el);
+    else el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.remove('comment-ref-flash');
+    void el.offsetWidth;
+    el.classList.add('comment-ref-flash');
+    el.addEventListener('animationend', function() {
+      el.classList.remove('comment-ref-flash');
     }, { once: true });
   }
 
-  document.addEventListener('click', function(e) {
-    const ref = e.target.closest && e.target.closest('.comment-ref');
-    if (!ref) return;
-    e.preventDefault();
-    scrollToCommentRef(ref.dataset.refId);
-  });
+  function jumpToCommentId(id) {
+    const target = findCommentTarget(id);
+    if (!target) {
+      showMiniToast('Comment ' + id + ' not found in this review');
+      return;
+    }
+    commentCollapseOverrides[target.comment.id] = false;
+    const done = function(card) { flashCommentRefTarget(card, target.replyId); };
+    if (target.filePath) scrollToComment(target.comment.id, target.filePath, done);
+    else scrollToReviewComment(target.comment.id, done);
+  }
 
-  document.addEventListener('keydown', function(e) {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    const ref = e.target.closest && e.target.closest('.comment-ref');
-    if (!ref) return;
+  function jumpToHashComment() {
+    const m = COMMENT_ID_HASH.exec(location.hash);
+    if (m) jumpToCommentId(m[1]);
+  }
+  window.addEventListener('hashchange', jumpToHashComment);
+
+  // Following a link to the hash already in the address fires no hashchange.
+  document.addEventListener('click', function(e) {
+    const ref = e.target.closest && e.target.closest('a.comment-ref');
+    if (!ref || location.hash !== '#' + ref.dataset.refId) return;
     e.preventDefault();
-    scrollToCommentRef(ref.dataset.refId);
+    jumpToCommentId(ref.dataset.refId);
   });
 
   // ===== Attachment Image Src Rewrite =====
@@ -1166,6 +1146,7 @@
     scrollToHashHeading();
     // Story layer (opt-in). No-op when session.story is absent.
     applyStoryPresence();
+    jumpToHashComment();
     updateDiffModeToggle();
   }
 
@@ -5878,7 +5859,8 @@
   }
 
   // Scroll to and flash a specific review-level comment card. Mirrors scrollToComment.
-  function scrollToReviewComment(commentId) {
+  // `done(card)`, when given, replaces the default scroll + highlight.
+  function scrollToReviewComment(commentId, done) {
     if (isReviewConversationCollapsed()) {
       setReviewConversationCollapsed(false);
       renderReviewConversation();
@@ -5891,6 +5873,8 @@
       return;
     }
     ignoreTreeObserverUntil = Date.now() + 200;
+    updateTreeActive(REVIEW_CONVERSATION_PATH);
+    if (done) { done(card); return; }
     card.scrollIntoView({ behavior: 'smooth', block: 'center' });
     card.classList.remove('comment-card-highlight');
     void card.offsetWidth;
@@ -6502,7 +6486,9 @@
     }, { once: true });
   }
 
-  function scrollToComment(commentId, filePath) {
+  // `done(card)` handles the mounted card (default: flashCommentCard).
+  function scrollToComment(commentId, filePath, done) {
+    done = done || flashCommentCard;
     // Story view: the comment renders inside its owning chapter, not a
     // file-section. Activate that chapter first (chapter-aware navigation),
     // then locate + flash the card within the story pane on the next frame.
@@ -6530,13 +6516,13 @@
         const pane = document.getElementById('storyPane');
         if (!pane) return;
         const card = pane.querySelector('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]');
-        if (card) flashCommentCard(card);
+        if (card) done(card);
       };
       if (navigated) requestAnimationFrame(locate); else locate();
       return;
     }
 
-    if (pierreView && pierreViewActive()) pierreJumpToComment(commentId, filePath, flashCommentCard);
+    if (pierreView && pierreViewActive()) pierreJumpToComment(commentId, filePath, done);
   }
 
   // ===== PR Overview Panel =====

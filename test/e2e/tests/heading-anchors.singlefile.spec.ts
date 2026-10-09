@@ -22,6 +22,13 @@ test.describe('Heading Anchors — Single File Mode', () => {
     await expect(target).toBeInViewport({ timeout: 3000 });
   });
 
+  test('CRIT-05.7 a heading anchor still scrolls to its heading, with no comment-ID message', async ({ page, baseURL }) => {
+    await loadPage(page);
+    await page.goto(baseURL + '/#timeline');
+    await expect(page.locator('h2#timeline')).toBeInViewport({ timeout: 3000 });
+    await expect(page.locator('.mini-toast')).toHaveCount(0);
+  });
+
   test('clicking an in-page anchor link scrolls to the heading', async ({ page }) => {
     await loadPage(page);
 

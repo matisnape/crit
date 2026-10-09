@@ -100,6 +100,51 @@
     return 'pin';
   }
 
+  // splitCommentRefs — split text around whole-word comment IDs (c_/r_/rp_)
+  // for which exists(id) is true. Returns null when nothing matches, else an
+  // array of strings and { id } parts.
+  function splitCommentRefs(text, exists) {
+    var re = /\b(?:c|r|rp)_[a-f0-9]{6,}\b/g;
+    var parts = [];
+    var last = 0, m;
+    while ((m = re.exec(text)) !== null) {
+      if (!exists(m[0])) continue;
+      if (m.index > last) parts.push(text.slice(last, m.index));
+      parts.push({ id: m[0] });
+      last = m.index + m[0].length;
+    }
+    if (!parts.length) return null;
+    if (last < text.length) parts.push(text.slice(last));
+    return parts;
+  }
+
+  // linkifyCommentRefs — turn existing comment IDs in el's text into
+  // <a class="comment-ref" href="#id"> links. Skips code, pre and links.
+  function linkifyCommentRefs(el, exists) {
+    var doc = el.ownerDocument;
+    var walker = doc.createTreeWalker(el, 4 /* NodeFilter.SHOW_TEXT */);
+    var nodes = [];
+    var node;
+    while ((node = walker.nextNode())) {
+      if (!node.parentNode.closest('code, pre, a')) nodes.push(node);
+    }
+    nodes.forEach(function (tn) {
+      var parts = splitCommentRefs(tn.nodeValue, exists);
+      if (!parts) return;
+      var frag = doc.createDocumentFragment();
+      parts.forEach(function (p) {
+        if (typeof p === 'string') { frag.appendChild(doc.createTextNode(p)); return; }
+        var a = doc.createElement('a');
+        a.className = 'comment-ref';
+        a.href = '#' + p.id;
+        a.dataset.refId = p.id;
+        a.textContent = p.id;
+        frag.appendChild(a);
+      });
+      tn.parentNode.replaceChild(frag, tn);
+    });
+  }
+
   // Standard class strings. These are deliberately simple constants so that
   // both renderers stay in sync if we tweak them later. Adding a class here
   // does NOT make every existing card pick it up — call sites still need to
@@ -114,6 +159,8 @@
   return {
     escapeHtml: escapeHtml,
     chipLabel: chipLabel,
+    splitCommentRefs: splitCommentRefs,
+    linkifyCommentRefs: linkifyCommentRefs,
     relativeTime: relativeTime,
     formatTime: formatTime,
     formatFullTime: formatFullTime,

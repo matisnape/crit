@@ -8,11 +8,12 @@
     root.crit.live.deeplink = api;
   }
 })(typeof window !== 'undefined' ? window : globalThis, function () {
-  const PIN_RE = /^#pin=([A-Za-z0-9_-]+)$/;
+  // #pin=<id>, or a bare comment ID (#c_49784e) as in code review.
+  const PIN_RE = /^#(?:pin=([A-Za-z0-9_-]+)|(c_[a-f0-9]{6,}))$/;
   function parseDeepLink(hashStr) {
     if (!hashStr) return null;
     const m = PIN_RE.exec(hashStr);
-    return m ? m[1] : null;
+    return m ? (m[1] || m[2]) : null;
   }
   function serializePinFragment(pinId) {
     return '#pin=' + pinId;

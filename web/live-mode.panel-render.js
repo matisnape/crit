@@ -88,6 +88,13 @@
         setCollapseOverride: function (id, val) {
           state.liveCollapseOverrides.set(id, val);
         },
+        // Existing pin IDs in comment text become links (CRIT-05.8).
+        linkifyDom: function (el) {
+          if (!helpers.linkifyCommentRefs) return;
+          helpers.linkifyCommentRefs(el, function (id) {
+            return (state.comments || []).some(function (c) { return c && c.id === id; });
+          });
+        },
         iconChevron: '<svg viewBox="0 0 16 16" fill="currentColor" width="16" height="16"><path d="M12.78 5.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 6.28a.75.75 0 0 1 1.06-1.06L8 8.94l3.72-3.72a.75.75 0 0 1 1.06 0Z"/></svg>',
         // Icon SVGs — kept byte-equivalent to code-review's ICON_* constants
         // in app.js so the live-mode action buttons inherit the exact same
