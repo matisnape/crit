@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loadPage } from './helpers';
+import { loadPage, recordToasts, shownToasts } from './helpers';
 
 test.describe('Heading Anchors — Single File Mode', () => {
   test('headings have id attributes matching their slug', async ({ page }) => {
@@ -23,10 +23,11 @@ test.describe('Heading Anchors — Single File Mode', () => {
   });
 
   test('CRIT-05.7 a heading anchor still scrolls to its heading, with no comment-ID message', async ({ page, baseURL }) => {
+    await recordToasts(page);
     await loadPage(page);
     await page.goto(baseURL + '/#timeline');
     await expect(page.locator('h2#timeline')).toBeInViewport({ timeout: 3000 });
-    await expect(page.locator('.mini-toast')).toHaveCount(0);
+    expect(await shownToasts(page)).toEqual([]);
   });
 
   test('clicking an in-page anchor link scrolls to the heading', async ({ page }) => {

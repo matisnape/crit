@@ -1,5 +1,5 @@
 import { test, expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
-import { clearAllComments, loadPage, addComment, revealFile, fileHeader, reviewScroller } from './helpers';
+import { clearAllComments, loadPage, addComment, revealFile, fileHeader, reviewScroller, storedUISettings } from './helpers';
 
 // CRIT-05: a comment ID in the address (#c_…, #r_…, #rp_…) or in another
 // comment's text jumps to that comment.
@@ -27,6 +27,11 @@ async function addReviewComment(request: APIRequestContext, body: string) {
 
 async function resolve(request: APIRequestContext, path: string, commentId: string) {
   const res = await request.put(`/api/comment/${commentId}/resolve?path=${encodeURIComponent(path)}`, { data: { resolved: true } });
+  expect(res.ok()).toBeTruthy();
+}
+
+async function resolveReview(request: APIRequestContext, commentId: string) {
+  const res = await request.put(`/api/review-comment/${commentId}/resolve`, { data: { resolved: true } });
   expect(res.ok()).toBeTruthy();
 }
 
@@ -132,6 +137,62 @@ test.describe('Jump to a comment by ID', () => {
     await expect(target).not.toHaveClass(/\bcollapsed\b/);
   });
 
+  test('CRIT-05.3 a resolved comment hidden by Hide resolved is shown, and the setting stays on', async ({ page, request }) => {
+    const [line, line2] = await hunkLines(request, FILE);
+    const c = await addComment(request, FILE, line, 'Hidden resolved target');
+    const other = await addComment(request, FILE, line2, 'Stays hidden');
+    const r = await addReviewComment(request, 'Hidden resolved review comment');
+    await resolve(request, FILE, c.id);
+    await resolve(request, FILE, other.id);
+    await resolveReview(request, r.id);
+    await expect(await request.patch('/api/ui-settings', { data: { hideResolved: true } })).toBeOK();
+    await loadPage(page);
+    await expect(page.locator('body')).toHaveClass(/hide-resolved/);
+    await revealFile(page, FILE);
+    await expect(card(page, c.id)).toHaveCount(0);
+    const reviewCard = page.locator(`#reviewConversation .comment-card[data-comment-id="${r.id}"]`);
+    await expect(reviewCard).toBeHidden();
+
+    await setHash(page, c.id);
+    await expectJumpedTo(card(page, c.id));
+    // Only the target is shown; other resolved threads stay hidden.
+    await expect(card(page, other.id)).toHaveCount(0);
+    await setHash(page, r.id);
+    await expectJumpedTo(reviewCard);
+    // The machine-wide setting is not changed by the jump.
+    expect((await storedUISettings(request)).hideResolved).toBe(true);
+    await expect(page.locator('body')).toHaveClass(/hide-resolved/);
+  });
+
+  test('CRIT-05.2 a hash change before the comments have loaded shows no false "not found"', async ({ page, request }) => {
+    const [line] = await hunkLines(request, FILE);
+    const c = await addComment(request, FILE, line, 'Early target');
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let requested!: () => void;
+    const sessionRequested = new Promise<void>((r) => { requested = r; });
+    await page.route('**/api/session*', async (route) => {
+      requested();
+      await gate;
+      await route.continue();
+    });
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    // app.js is running (it asked for the session) and the comments are not in yet.
+    await sessionRequested;
+    const toast = await page.evaluate(async (h) => {
+      const changed = new Promise((r) => window.addEventListener('hashchange', r, { once: true }));
+      window.location.hash = h;
+      await changed;
+      await new Promise((r) => requestAnimationFrame(r));
+      const t = document.querySelector('.mini-toast');
+      return t ? t.textContent : '';
+    }, '#' + c.id);
+    expect(toast).toBe('');
+    release();
+    await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
+    await expectJumpedTo(card(page, c.id));
+  });
+
   test('CRIT-05.3 an outdated comment is revealed', async ({ page, request }) => {
     const c = await addComment(request, FILE, 9999, 'Outdated target');
     await loadPage(page);
@@ -154,7 +215,20 @@ test.describe('Jump to a comment by ID', () => {
     await loadPage(page);
     await openFresh(page, 'c_000000');
     await expect(page.locator('.mini-toast')).toHaveText('Comment c_000000 not found in this review');
-    expect(await reviewScroller(page).evaluate((el) => el.scrollTop)).toBe(0);
+
+    // From a scrolled position, an unknown ID leaves the scroll where it was.
+    const scroller = reviewScroller(page);
+    await scroller.evaluate((el) => { el.scrollTop = 400; });
+    let before = -1;
+    await expect.poll(async () => {
+      const now = await scroller.evaluate((el) => el.scrollTop);
+      const settled = now === before;
+      before = now;
+      return settled && now > 0;
+    }).toBe(true);
+    await setHash(page, 'c_111111');
+    await expect(page.locator('.mini-toast').last()).toHaveText('Comment c_111111 not found in this review');
+    expect(await scroller.evaluate((el) => el.scrollTop)).toBe(before);
     // The rest of the page still works.
     await revealFile(page, FILE);
   });

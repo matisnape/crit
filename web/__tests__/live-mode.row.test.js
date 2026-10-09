@@ -130,6 +130,36 @@ test('renderLivePinRow configures top-level card controls and keyboard focus', (
   }
 });
 
+test('renderLivePinRow linkifies comment IDs in reply bodies (CRIT-05.8)', () => {
+  const origDocument = global.document;
+  const origWindow = global.window;
+  global.document = { createElement: (tag) => makeStubEl(tag) };
+  let cardOpts = null;
+  global.window = {
+    crit: {
+      commentCard: {
+        buildCommentCard: (_c, _p, opts) => {
+          cardOpts = opts;
+          return { wrapper: makeStubEl('div'), card: makeStubEl('div'), actions: makeStubEl('div') };
+        },
+      },
+    },
+  };
+  try {
+    const linkified = [];
+    const linkifyDom = (el) => linkified.push(el);
+    const pin = { id: 'c_aaaaaa', body: 'pin', dom_anchor: { pathname: '/' }, replies: [{ id: 'rp_bbbbbb', body: 'see c_cccccc' }] };
+    renderLivePinRow(pin, { linkifyDom });
+    assert.equal(cardOpts.deps.linkifyDom, linkifyDom, 'card body gets linkifyDom');
+    cardOpts.deps.renderReplyList(pin, '/');
+    assert.deepEqual(linkified.map((el) => el.className), ['reply-body']);
+    assert.equal(linkified[0].textContent, 'see c_cccccc');
+  } finally {
+    if (origDocument === undefined) delete global.document; else global.document = origDocument;
+    if (origWindow === undefined) delete global.window; else global.window = origWindow;
+  }
+});
+
 test('renderLivePinRow returns a fallback element when buildCommentCard is unavailable', () => {
   // Simulate a Node-side environment where window.crit.commentCard is not
   // wired. The row falls back to a minimal div so live mode still renders

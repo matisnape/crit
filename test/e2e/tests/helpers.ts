@@ -37,6 +37,29 @@ export function realCommitItems(page: Page): Locator {
   return page.locator('#commitDropdownList .commit-picker-item:not(.is-virtual)');
 }
 
+/**
+ * Record every toast shown from the next page load on. A toast disappears
+ * after a few seconds, so `toHaveCount(0)` alone cannot prove none was shown.
+ */
+export async function recordToasts(page: Page) {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __critToasts: string[] };
+    w.__critToasts = [];
+    new MutationObserver((records) => {
+      for (const r of records) {
+        r.addedNodes.forEach((n) => {
+          if (n instanceof HTMLElement && n.classList.contains('mini-toast')) w.__critToasts.push(n.textContent || '');
+        });
+      }
+    }).observe(document, { childList: true, subtree: true });
+  });
+}
+
+/** Messages of the toasts shown since recordToasts() and the last page load. */
+export async function shownToasts(page: Page): Promise<string[]> {
+  return page.evaluate(() => (window as unknown as { __critToasts?: string[] }).__critToasts || []);
+}
+
 // Navigate to the root page and wait for loading to complete.
 // Ensures diffScope=all is set in the crit-settings cookie so tests see
 // all files (branch+untracked), matching the pre-smart-default behavior.

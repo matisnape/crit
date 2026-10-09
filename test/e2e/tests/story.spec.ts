@@ -5,7 +5,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   clearAllComments, loadPage, goSection, addComment, diffLine, diffLineNumber, hoverLine, revealFile,
-  submitFileLevelComment, expectPaintedQuote, selectInLineAndPressC,
+  submitFileLevelComment, expectPaintedQuote, selectInLineAndPressC, recordToasts, shownToasts,
 } from './helpers';
 import { stateFilePath } from './state-file';
 
@@ -268,6 +268,22 @@ test.describe('Story mode', () => {
     await expect(tocItem(page, 'support')).toBeVisible();
 
     await clearStory(request);
+  });
+
+  test('CRIT-05.7 opening the page with #story or #story/<chapter> opens the story view', async ({ page }) => {
+    await ingestStory(critBin, fixtureDir, fakeHome);
+    await recordToasts(page);
+    for (const [hash, view] of [['#story/ch1', 'ch1'], ['#story', 'overview']]) {
+      // A full page load, not a same-document hash change.
+      await page.goto('about:blank');
+      await page.goto('/' + hash);
+      await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
+      await expect(page.locator('body')).toHaveClass(/crit-story-active/);
+      await expect(storyView(page, view)).toBeVisible();
+      // The view renders in the same step as the comment-ID check, so any
+      // "not found" message has been shown by now.
+      expect(await shownToasts(page)).toEqual([]);
+    }
   });
 
   test('header sidebar toggle collapses the chapter rail (same control as file tree)', async ({ page, request }) => {
