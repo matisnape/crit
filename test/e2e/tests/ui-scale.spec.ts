@@ -2,7 +2,7 @@ import { test, expect, type APIRequestContext, type Locator, type Page } from '@
 import {
   clearAllComments, loadPage, goSection, mdSection, fileHeader, addComment, clearFocus,
   dragLineRange, openLineComment, diffLine, diffLineNumber, reviewScroller, switchToDocumentView,
-  storedUISettings, setDiffStyle, selectedRows, mdDocument,
+  storedUISettings, setDiffStyle, selectedRows, mdDocument, showLine,
 } from './helpers';
 
 // Interface scale (CRIT-03): one zoom factor for crit's own interface, kept in
@@ -168,7 +168,7 @@ test.describe('Interface scale', () => {
           const item = await goSection(page);
           await expect(item.locator('code[data-unified]')).toBeVisible();
           await expect(diffLine(item, 21, 'old')).toHaveAttribute('data-line-type', 'change-deletion');
-          await diffLine(item, 21, 'old').scrollIntoViewIfNeeded();
+          await showLine(page, diffLine(item, 21, 'old'));
           await expect(diffLine(item, 23, 'old')).toHaveAttribute('data-line-type', 'change-deletion');
           const form = await dragLineRange(page, item, 21, 23, 'old');
           await expect(form.locator('.comment-form-header')).toHaveText('Comment on Lines 21-23');
