@@ -6,7 +6,8 @@ const { create, KEYS, SCALES } = require('../crit-ui-settings.js');
 
 function root() {
   const props = {};
-  return { props, style: { setProperty: (k, v) => { props[k] = v; } } };
+  const attrs = {};
+  return { props, attrs, style: { setProperty: (k, v) => { props[k] = v; } }, setAttribute: (k, v) => { attrs[k] = v; } };
 }
 
 test('CRIT-03.1 the offered scales are 75, 80, 90, 100, 110 and 125 percent', () => {
@@ -26,6 +27,7 @@ test('CRIT-03.2 a stored scale is applied as a CSS zoom factor', () => {
   const html = root();
   create({ settings: { scale: 80 } }, {}).applyScale(html);
   assert.equal(html.props['--crit-ui-scale'], '0.8');
+  assert.equal(html.attrs['data-ui-scale'], '80');
 });
 
 for (const bad of [300, 0, -5, 'big', '90', null]) {

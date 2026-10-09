@@ -115,7 +115,10 @@
     function scale() { var s = get('scale', 100); return SCALES.indexOf(s) === -1 ? 100 : s; }
     function applyScale(root) {
       var html = root || (typeof document !== 'undefined' && document.documentElement);
-      if (html) html.style.setProperty('--crit-ui-scale', String(scale() / 100));
+      if (!html) return;
+      html.style.setProperty('--crit-ui-scale', String(scale() / 100));
+      // For layout that only a scaled page needs (style.css header wrap).
+      html.setAttribute('data-ui-scale', String(scale()));
     }
 
     // This review's identity (its review folder key), for per-review state.
