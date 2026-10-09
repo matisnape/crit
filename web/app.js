@@ -5903,7 +5903,6 @@
     card.addEventListener('animationend', function() {
       card.classList.remove('comment-card-highlight');
     }, { once: true });
-    updateTreeActive(REVIEW_CONVERSATION_PATH);
   }
 
   // Build the URL for a reply mutation (edit or delete). filePath empty → review-level.
