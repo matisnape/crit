@@ -3055,7 +3055,7 @@ textarea.drag-active {
 }
 
 /* Hide-resolved: body-class-driven CSS rule (replaces imperative DOM walk). */
-body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) {
+body.hide-resolved .comment-block:not(.panel-comment-block):not(.comment-revealed):has(.resolved-card) {
   display: none;
 }
 
