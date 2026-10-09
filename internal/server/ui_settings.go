@@ -125,8 +125,9 @@ func (s *Server) injectUISettings(page []byte, r *http.Request) []byte {
 // crit-templates cookie (where older versions kept them) into the file, once:
 // only while the file has no templates key. Deleting the last template stores
 // [], so a stale cookie on another host cannot bring deleted ones back.
-// ponytail: the check and the save are not one locked step; two first loads
-// at the same instant could both import (same cookie on one host, so harmless).
+// ponytail: the check and the save are not one locked step. Two first loads at
+// the same instant, from two hosts with different cookies, can both import and
+// the last save wins; a locked check-and-save in uisettings would close it.
 func importTemplatesCookie(r *http.Request, snap uisettings.Snapshot) uisettings.Snapshot {
 	if _, ok := snap.Settings["templates"]; ok {
 		return snap

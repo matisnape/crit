@@ -45,7 +45,8 @@ var bools = map[string]bool{"hideResolved": true, "ignoreWhitespace": true, "liv
 // Mirrors MAX_CODE_FONT_LENGTH in web/crit-shared.js.
 const maxCodeFontLength = 256
 
-// IsSetting reports whether key is a Settings-dialog control stored here.
+// IsSetting reports whether key is a machine-wide UI setting stored here (a
+// Settings-dialog choice, or the saved comment templates).
 func IsSetting(key string) bool {
 	_, enum := enums[key]
 	return enum || bools[key] || key == "lightPalette" || key == "darkPalette" || key == "codeFont" || key == "shortcuts" || key == "templates"

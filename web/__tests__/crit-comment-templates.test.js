@@ -4,8 +4,8 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 // --- Sandbox setup ---
-// We need window.crit.shared.getCookie/setCookie available before loading
-// crit-comment-templates.js. Build a minimal shim.
+// A minimal DOM with a cookie jar, plus the real crit-shared.js, so tests can
+// check that no crit-templates cookie is read or written.
 
 function makeSandbox() {
   var cookieJar = '';
@@ -51,49 +51,6 @@ function makeSandbox() {
 
 // --- Tests ---
 
-test('getTemplates returns empty array when no cookie', () => {
-  var sb = makeSandbox();
-  var api = sb.win.crit.commentTemplates;
-  assert.deepEqual(api.getTemplates(), []);
-});
-
-test('saveTemplates + getTemplates roundtrip', () => {
-  var sb = makeSandbox();
-  var api = sb.win.crit.commentTemplates;
-  api.saveTemplates(['Fix typo', 'LGTM']);
-  // Simulate browser echoing cookie back (only name=value, no attributes).
-  var raw = sb.doc.cookie.split(';')[0]; // "crit-templates=..."
-  sb.setCookieRaw(raw);
-  assert.deepEqual(api.getTemplates(), ['Fix typo', 'LGTM']);
-});
-
-test('buildTemplateBar returns a DOM element with correct class', () => {
-  var sb = makeSandbox();
-  var api = sb.win.crit.commentTemplates;
-
-  // Seed one template so the bar renders chips.
-  api.saveTemplates(['Nice!']);
-  var raw = sb.doc.cookie.split(';')[0];
-  sb.setCookieRaw(raw);
-
-  var inserted = [];
-  var bar = api.buildTemplateBar({
-    onInsert: function (text) { inserted.push(text); },
-    onSaveNew: function () {},
-  });
-  assert.equal(bar.className, 'comment-template-bar');
-  // Should have one chip child.
-  assert.equal(bar.children.length, 1);
-  assert.equal(bar.children[0].className, 'template-chip');
-});
-
-test('buildTemplateBar hides when no templates', () => {
-  var sb = makeSandbox();
-  var api = sb.win.crit.commentTemplates;
-  var bar = api.buildTemplateBar({ onInsert: function () {}, onSaveNew: function () {} });
-  assert.equal(bar.style.display, 'none');
-});
-
 test('CommonJS module.exports matches window.crit.commentTemplates', () => {
   var sb = makeSandbox();
   assert.strictEqual(sb.mod.exports, sb.win.crit.commentTemplates);
@@ -135,6 +92,32 @@ function chipDelete(bar, i) {
   var del = bar.children[i].children[1];
   del._listeners.click[0]({ preventDefault: function () {}, stopPropagation: function () {} });
 }
+
+test('getTemplates returns an empty list when none are stored', () => {
+  var sb = sandboxWithStore({});
+  assert.deepEqual(sb.win.crit.commentTemplates.getTemplates(), []);
+});
+
+test('saveTemplates + getTemplates roundtrip', () => {
+  var sb = sandboxWithStore({});
+  var api = sb.win.crit.commentTemplates;
+  api.saveTemplates(['Fix typo', 'LGTM']);
+  assert.deepEqual(api.getTemplates(), ['Fix typo', 'LGTM']);
+});
+
+test('buildTemplateBar returns a DOM element with correct class', () => {
+  var sb = sandboxWithStore({ templates: ['Nice!'] });
+  var bar = sb.win.crit.commentTemplates.buildTemplateBar({ onInsert: function () {} });
+  assert.equal(bar.className, 'comment-template-bar');
+  assert.equal(bar.children.length, 1);
+  assert.equal(bar.children[0].className, 'template-chip');
+});
+
+test('buildTemplateBar hides when no templates', () => {
+  var sb = sandboxWithStore({});
+  var bar = sb.win.crit.commentTemplates.buildTemplateBar({ onInsert: function () {} });
+  assert.equal(bar.style.display, 'none');
+});
 
 test('CRIT-06.1 templates come from the shared settings file, not the cookie', () => {
   var sb = sandboxWithStore({ templates: ['Fix typo'] });
