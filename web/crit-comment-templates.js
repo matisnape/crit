@@ -1,8 +1,10 @@
 // crit-comment-templates.js — template bar and saved-snippet CRUD.
 // Vanilla JS, no module loader. Exports onto window.crit.commentTemplates.
 //
-// Depends on: window.crit.shared.getCookie, window.crit.shared.setCookie
-// Cookie: `crit-templates` (separate from crit-settings — user-defined, can be longer).
+// Depends on: window.crit.uiSettings (templates live under `templates` in
+// ~/.crit/ui-settings.json, shared by every review; the server imports an old
+// `crit-templates` cookie once). Without the store (unit-test sandboxes) it
+// falls back to that cookie via window.crit.shared.getCookie/setCookie.
 
 (function () {
   'use strict';
@@ -13,6 +15,12 @@
   // --- CRUD ---
 
   function getTemplates() {
+    var store = ns.uiSettings;
+    if (store) {
+      var stored = store.get('templates', []);
+      // A copy: callers edit the list, and the store skips an unchanged value.
+      return Array.isArray(stored) ? stored.slice() : [];
+    }
     try {
       var raw = shared.getCookie('crit-templates');
       if (raw) {
@@ -24,6 +32,9 @@
   }
 
   function saveTemplates(templates) {
+    // [] rather than a removal once all are deleted, so the server never
+    // re-imports an old crit-templates cookie.
+    if (ns.uiSettings) return ns.uiSettings.set('templates', templates);
     shared.setCookie('crit-templates', JSON.stringify(templates));
   }
 

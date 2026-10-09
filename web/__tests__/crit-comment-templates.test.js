@@ -96,3 +96,60 @@ test('CommonJS module.exports matches window.crit.commentTemplates', () => {
   var sb = makeSandbox();
   assert.strictEqual(sb.mod.exports, sb.win.crit.commentTemplates);
 });
+
+// --- Shared settings file (~/.crit/ui-settings.json via window.crit.uiSettings) ---
+
+function sandboxWithStore(settings) {
+  var sb = makeSandbox();
+  var patches = [];
+  var create = require('../crit-ui-settings.js').create;
+  sb.win.crit.uiSettings = create({ settings: settings }, {
+    fetch: function (url, opts) {
+      patches.push(JSON.parse(opts.body));
+      return Promise.resolve({ ok: true });
+    },
+  });
+  sb.patches = patches;
+  return sb;
+}
+
+function chipDelete(bar, i) {
+  var del = bar.children[i].children[1];
+  del._listeners.click[0]({ preventDefault: function () {}, stopPropagation: function () {} });
+}
+
+test('CRIT-06.1 templates come from the shared settings file, not the cookie', () => {
+  var sb = sandboxWithStore({ templates: ['Fix typo'] });
+  sb.setCookieRaw('crit-templates=' + encodeURIComponent('["From cookie"]'));
+  var bar = sb.win.crit.commentTemplates.buildTemplateBar({ onInsert: function () {} });
+  assert.equal(bar.children.length, 1);
+  assert.equal(bar.children[0].title, 'Fix typo');
+});
+
+// The store PATCHes in a microtask; let it run.
+function settle() { return new Promise(function (r) { setImmediate(r); }); }
+
+test('CRIT-06.1 saving a template sends the whole list to the settings file', async () => {
+  var sb = sandboxWithStore({ templates: ['Fix typo'] });
+  var bar = sb.win.crit.commentTemplates.buildTemplateBar({ onInsert: function () {} });
+  bar._saveNew('LGTM');
+  await settle();
+  assert.deepEqual(sb.patches, [{ templates: ['Fix typo', 'LGTM'] }]);
+  assert.deepEqual(sb.win.crit.commentTemplates.getTemplates(), ['Fix typo', 'LGTM']);
+  assert.equal(sb.doc.cookie, '', 'no crit-templates cookie written');
+});
+
+test('CRIT-06.3 deleting a template sends the remaining list; the last one leaves []', async () => {
+  var sb = sandboxWithStore({ templates: ['Fix typo', 'LGTM'] });
+  var bar = sb.win.crit.commentTemplates.buildTemplateBar({ onInsert: function () {} });
+  chipDelete(bar, 0);
+  chipDelete(bar, 0);
+  await settle();
+  assert.deepEqual(sb.patches, [{ templates: ['LGTM'] }, { templates: [] }]);
+  assert.equal(bar.style.display, 'none');
+});
+
+test('CRIT-06.4 a stored value that is not a list offers no templates', () => {
+  var sb = sandboxWithStore({ templates: '["Fix typo"' });
+  assert.deepEqual(sb.win.crit.commentTemplates.getTemplates(), []);
+});

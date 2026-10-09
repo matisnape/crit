@@ -286,8 +286,8 @@
   // ===== Settings =====
   // One implementation, in crit-shared.js: Settings-dialog choices are stored
   // by the server in ~/.crit/ui-settings.json (shared by every review);
-  // per-review view state stays in the `crit-settings` cookie. `crit-templates`
-  // keeps its own cookie because it's user-defined and can be long.
+  // per-review view state stays in the `crit-settings` cookie. Saved comment
+  // templates are stored in the same file (crit-comment-templates.js).
   function loadSettings() { return window.crit.shared.readSettings(); }
   function getSetting(key, fallback) { return window.crit.shared.getSetting(key, fallback); }
   function setSetting(key, value) { return window.crit.shared.setSetting(key, value); }
