@@ -177,10 +177,11 @@
       }
     }
 
-    // On-screen top of a mounted item's element, or null when not rendered.
+    // On-screen top of a mounted item's element in CSS px (scrollTop's unit,
+    // also under the interface scale's zoom), or null when not rendered.
     function renderedTop(path) {
       var r = viewer.getRenderedItems().find(function(x) { return x.id === path; });
-      return r && r.element ? r.element.getBoundingClientRect().top : null;
+      return r && r.element ? r.element.getBoundingClientRect().top / (r.element.currentCSSZoom || 1) : null;
     }
 
     // Pierre appends a changed annotation's wrapper at the end of the host,

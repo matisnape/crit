@@ -2,7 +2,7 @@ import { test, expect, type APIRequestContext, type Locator, type Page } from '@
 import {
   clearAllComments, loadPage, goSection, mdSection, fileHeader, addComment, clearFocus,
   dragLineRange, openLineComment, diffLine, diffLineNumber, reviewScroller, switchToDocumentView,
-  storedUISettings,
+  storedUISettings, setDiffStyle, selectedRows, mdDocument,
 } from './helpers';
 
 // Interface scale (CRIT-03): one zoom factor for crit's own interface, kept in
@@ -121,8 +121,10 @@ test.describe('Interface scale', () => {
       });
 
       test.describe('pointer', () => {
-        // 125% in 1280x800 leaves 1024 CSS px, where the + button helper already
-        // fails at 100% (a 1024x640 window): the same CSS layout as 1280x800 at 100%.
+        // 125% of a 1280-wide window leaves 1024 CSS px. There the split code
+        // column is narrower than its longest row, and the helpers' centre hit
+        // test on that row lands outside the column: the same tests fail at 100%
+        // in a 1024x576 window. A helper limit, not the scale's.
         if (scale === 125) test.use({ viewport: { width: 1600, height: 1000 } });
         test(`CRIT-03.3 at ${scale}% a drag selects exactly the lines passed over`, async ({ page }) => {
           await loadPage(page);
@@ -141,6 +143,21 @@ test.describe('Interface scale', () => {
           expect(formBox.y).toBeGreaterThanOrEqual(line.y + line.height - 1);
           expect(formBox.y).toBeLessThan(line.y + line.height + 40);
         });
+
+        test(`CRIT-03.3 at ${scale}% a unified drag between deletions selects exactly the rows passed over`, async ({ page }) => {
+          // Pierre sized its render window from getBoundingClientRect, which the
+          // zoom scales: at 75% rows just below the pane's bottom edge were not mounted.
+          await loadPage(page);
+          await setDiffStyle(page, 'unified');
+          const item = await goSection(page);
+          await expect(item.locator('code[data-unified]')).toBeVisible();
+          await expect(diffLine(item, 21, 'old')).toHaveAttribute('data-line-type', 'change-deletion');
+          await diffLine(item, 21, 'old').scrollIntoViewIfNeeded();
+          await expect(diffLine(item, 23, 'old')).toHaveAttribute('data-line-type', 'change-deletion');
+          const form = await dragLineRange(page, item, 21, 23, 'old');
+          await expect(form.locator('.comment-form-header')).toHaveText('Comment on Lines 21-23');
+          await expect.poll(() => selectedRows(item)).toEqual(['21:change-deletion', '42:context', '23:change-deletion']);
+        });
       });
 
       test(`CRIT-03.3 at ${scale}% a file-tree jump shows the file header below the sticky header`, async ({ page }) => {
@@ -151,6 +168,18 @@ test.describe('Interface scale', () => {
         await expectUncovered(page, fileHeader(page, 'plan.md'));
         await page.locator('.tree-file[data-tree-path="handler.js"]').click();
         await expectUncovered(page, fileHeader(page, 'handler.js'));
+      });
+
+      test(`CRIT-03.3 at ${scale}% switching a file to Document view keeps its header in view`, async ({ page }) => {
+        // The swap re-anchors the scroll by the item's on-screen move, which
+        // must be converted to CSS px like scrollTop.
+        await loadPage(page);
+        const header = fileHeader(page, 'plan.md');
+        await page.locator('.tree-file[data-tree-path="plan.md"]').click();
+        await expectUncovered(page, header);
+        await header.locator('.file-header-toggle .toggle-btn[data-mode="document"]').click();
+        await expect(mdDocument(page).locator('.document-wrapper')).toBeVisible();
+        await expectUncovered(page, header);
       });
 
       test(`CRIT-03.3 at ${scale}% the next-comment key lands each comment in view`, async ({ page, request }) => {
@@ -168,9 +197,6 @@ test.describe('Interface scale', () => {
       });
 
       test(`CRIT-03.3 at ${scale}% the next-comment key lands each comment of a rendered document in view`, async ({ page, request }) => {
-        // Open: at 125% in 1280x720 the tree jump to plan.md (inside the
-        // switchToDocumentView helper) stops a file short, inside Pierre's scrollTo.
-        test.fixme(scale === 125, 'tree jump lands short at 125% in a 1280x720 window');
         const first = await addComment(request, 'plan.md', 1, 'First comment');
         const second = await addComment(request, 'plan.md', 5, 'Second comment');
         await loadPage(page);

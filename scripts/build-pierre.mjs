@@ -80,6 +80,64 @@ const fineGrainedShiki = {
   },
 };
 
+// The Settings interface scale (CRIT-03) is a CSS zoom on <html>. Under zoom,
+// getBoundingClientRect returns zoomed px while scrollTop, ResizeObserver sizes
+// and Pierre's line metrics stay CSS px, and Pierre mixes the two: a scaled
+// page got wrong item heights, scroll clamps and render windows. Patch every
+// rect height that feeds CodeView's layout model to CSS px (Chromium-only
+// scope, as the story states). Each patch must match exactly once, so a
+// Pierre upgrade that moves one fails the build instead of skipping it.
+const CSS_HEIGHT = "__critCssHeight";
+const ZOOM_PATCHES = {
+  "components/CodeView.js": [
+    ["this.header.element.getBoundingClientRect().height", `${CSS_HEIGHT}(this.header.element)`],
+    ["this.footer.element.getBoundingClientRect().height", `${CSS_HEIGHT}(this.footer.element)`],
+    ["this.root?.getBoundingClientRect().height ?? 0", `(this.root ? ${CSS_HEIGHT}(this.root) : 0)`],
+  ],
+  "components/VirtualizedFile.js": [
+    ["line.getBoundingClientRect().height", `${CSS_HEIGHT}(line)`],
+    ["line.nextElementSibling.getBoundingClientRect().height", `${CSS_HEIGHT}(line.nextElementSibling)`],
+    ["child.getBoundingClientRect().height", `${CSS_HEIGHT}(child)`],
+  ],
+  "components/VirtualizedFileDiff.js": [
+    ["line.getBoundingClientRect().height", `${CSS_HEIGHT}(line)`],
+    ["line.nextElementSibling.getBoundingClientRect().height", `${CSS_HEIGHT}(line.nextElementSibling)`],
+    ["child.getBoundingClientRect().height", `${CSS_HEIGHT}(child)`],
+  ],
+  "managers/ResizeManager.js": [
+    ["child1.getBoundingClientRect().height", `${CSS_HEIGHT}(child1)`],
+    ["child2.getBoundingClientRect().height", `${CSS_HEIGHT}(child2)`],
+  ],
+};
+// Snapped to Chromium's 1/64 px layout unit: 0.8, 0.9 and 1.1 are inexact in
+// binary, and Pierre compares measured heights to its metrics with ===.
+const CSS_HEIGHT_FN = `\nfunction ${CSS_HEIGHT}(el) {
+  const zoom = el.currentCSSZoom || 1;
+  const h = el.getBoundingClientRect().height;
+  return zoom === 1 ? h : Math.round(h / zoom * 64) / 64;
+}\n`;
+
+const zoomPatched = new Set();
+const pierreZoomPatches = {
+  name: "crit-pierre-zoom",
+  setup(b) {
+    // Native separators: esbuild passes backslash paths on Windows.
+    const names = Object.keys(ZOOM_PATCHES).map(k => k.replace(/\./g, "\\.").replace("/", "[\\\\/]"));
+    const filter = new RegExp(`@pierre[\\\\/]diffs[\\\\/]dist[\\\\/](${names.join("|")})$`);
+    b.onLoad({ filter }, args => {
+      const rel = Object.keys(ZOOM_PATCHES).find(k => args.path.replace(/\\/g, "/").endsWith(`/dist/${k}`));
+      let code = readFileSync(args.path, "utf8");
+      for (const [from, to] of ZOOM_PATCHES[rel]) {
+        const n = code.split(from).length - 1;
+        if (n !== 1) throw new Error(`crit-pierre-zoom: ${rel}: expected 1 match of ${JSON.stringify(from)}, found ${n}`);
+        code = code.replace(from, to);
+      }
+      zoomPatched.add(rel);
+      return { contents: code + CSS_HEIGHT_FN, loader: "js" };
+    });
+  },
+};
+
 const ENTRY = `\
 import {
   CodeView,
@@ -140,10 +198,12 @@ export async function buildPierre() {
     entryNames: "pierre-diffs",
     chunkNames: "chunk-[hash]",
     legalComments: "none",
-    plugins: [fineGrainedShiki],
+    plugins: [fineGrainedShiki, pierreZoomPatches],
     metafile: true,
     logLevel: "warning",
   });
+  const unpatched = Object.keys(ZOOM_PATCHES).filter(k => !zoomPatched.has(k));
+  if (unpatched.length) throw new Error(`crit-pierre-zoom: never loaded ${unpatched.join(", ")}`);
   // The portable worker has no static imports; its only dynamic import is the
   // Oniguruma WASM chunk used by the 'shiki-wasm' engine, which Crit does not
   // select (it uses the JS regex engine), so the WASM chunk is not shipped.
