@@ -4411,11 +4411,12 @@
       const computedStyle = window.getComputedStyle(textarea);
       const lineHeight = parseFloat(computedStyle.lineHeight) || 22.4;
       const paddingTop = parseFloat(computedStyle.paddingTop) || 10;
-      const cursorY = textareaRect.top + paddingTop + (lineNumber * lineHeight) - textarea.scrollTop;
+      // The rect is screen px; the computed style and scrollTop are already CSS px.
       const cssPx = window.crit.shared.cssPx;
+      const cursorY = cssPx(textareaRect.top) + paddingTop + (lineNumber * lineHeight) - textarea.scrollTop;
       dropdown.style.left = cssPx(textareaRect.left) + 'px';
       dropdown.style.width = cssPx(textareaRect.width) + 'px';
-      dropdown.style.top = cssPx(cursorY) + 'px';
+      dropdown.style.top = cursorY + 'px';
 
       dropdown.innerHTML = '';
       activeIndex = 0;
@@ -7470,8 +7471,9 @@
     const nodes = mermaidOverlayNodes();
     if (!nodes.viewport) return;
     const rect = nodes.viewport.getBoundingClientRect();
-    const px = clientX - rect.left;
-    const py = clientY - rect.top;
+    // Pointer and rect are screen px; the canvas translate is CSS px.
+    const px = window.crit.shared.cssPx(clientX - rect.left);
+    const py = window.crit.shared.cssPx(clientY - rect.top);
     const next = Math.min(MERMAID_ZOOM_MAX, Math.max(MERMAID_ZOOM_MIN, mermaidOverlayState.scale * factor));
     if (next === mermaidOverlayState.scale) return;
     const ratio = next / mermaidOverlayState.scale;
@@ -7645,7 +7647,8 @@
       try { nodes.viewport.setPointerCapture(e.pointerId); } catch { /* noop */ }
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (activePointers.size === 1) {
-        panAnchor = { x: e.clientX - mermaidOverlayState.x, y: e.clientY - mermaidOverlayState.y };
+        const cssPx = window.crit.shared.cssPx;
+        panAnchor = { x: cssPx(e.clientX) - mermaidOverlayState.x, y: cssPx(e.clientY) - mermaidOverlayState.y };
         nodes.viewport.classList.add('panning');
       } else {
         panAnchor = null;
@@ -7669,8 +7672,8 @@
         return;
       }
       if (panAnchor) {
-        mermaidOverlayState.x = e.clientX - panAnchor.x;
-        mermaidOverlayState.y = e.clientY - panAnchor.y;
+        mermaidOverlayState.x = window.crit.shared.cssPx(e.clientX) - panAnchor.x;
+        mermaidOverlayState.y = window.crit.shared.cssPx(e.clientY) - panAnchor.y;
         mermaidOverlayApply();
       }
     });

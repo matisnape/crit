@@ -173,4 +173,34 @@ test.describe('Mermaid fullscreen overlay — File Mode', () => {
     await request.post('/api/round-complete');
     await expect(page.locator('#mermaidOverlay')).not.toHaveClass(/active/);
   });
+
+  // CRIT-03: under the interface scale's zoom, pointer coordinates are screen
+  // px while the canvas transform is CSS px.
+  test('at 125% interface scale, wheel zoom keeps the point under the cursor and a drag pans 1:1', async ({ page, request }) => {
+    await expect(await request.patch('/api/ui-settings', { data: { scale: 125 } })).toBeOK();
+    await loadPage(page);
+    await openOverlay(page);
+    const svg = page.locator('#mermaidOverlayCanvas svg');
+    const vp = (await page.locator('#mermaidOverlayViewport').boundingBox())!;
+    const box = async () => (await svg.boundingBox())!;
+
+    // A point a quarter of the way into the diagram, away from its centre.
+    const start = await box();
+    const cx = start.x + start.width / 4, cy = start.y + start.height / 4;
+    await page.mouse.move(cx, cy);
+    await page.mouse.wheel(0, -100);
+    await expect.poll(async () => (await box()).width).toBeGreaterThan(start.width * 1.05);
+    const zoomed = await box();
+    expect(Math.abs((cx - zoomed.x) / zoomed.width - 0.25)).toBeLessThan(0.01);
+    expect(Math.abs((cy - zoomed.y) / zoomed.height - 0.25)).toBeLessThan(0.01);
+
+    const px = vp.x + vp.width / 2, py = vp.y + vp.height / 2;
+    await page.mouse.move(px, py);
+    await page.mouse.down();
+    await page.mouse.move(px + 100, py + 50, { steps: 5 });
+    await page.mouse.up();
+    const panned = await box();
+    expect(panned.x - zoomed.x).toBeCloseTo(100, 0);
+    expect(panned.y - zoomed.y).toBeCloseTo(50, 0);
+  });
 });

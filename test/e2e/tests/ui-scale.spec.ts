@@ -144,6 +144,22 @@ test.describe('Interface scale', () => {
           expect(formBox.y).toBeLessThan(line.y + line.height + 40);
         });
 
+        test(`CRIT-03 at ${scale}% the @ file picker opens under the caret's line`, async ({ page }) => {
+          await loadPage(page);
+          const form = await openLineComment(page, await goSection(page), 24);
+          const textarea = form.locator('textarea');
+          await textarea.pressSequentially('one\ntwo\nthree\nfour\n@');
+          const dropdown = page.locator('.file-picker-dropdown');
+          await expect(dropdown.locator('.file-picker-item').first()).toBeVisible();
+          // Below line 5 of the text, in screen px: the textarea's CSS-px offsets times the zoom.
+          const want = await textarea.evaluate((el: HTMLTextAreaElement, zoom) => {
+            const cs = getComputedStyle(el);
+            const css = parseFloat(cs.paddingTop) + 5 * parseFloat(cs.lineHeight) - el.scrollTop;
+            return el.getBoundingClientRect().top + css * zoom;
+          }, scale / 100);
+          expect(Math.abs((await dropdown.boundingBox())!.y - want)).toBeLessThan(2);
+        });
+
         test(`CRIT-03.3 at ${scale}% a unified drag between deletions selects exactly the rows passed over`, async ({ page }) => {
           // Pierre sized its render window from getBoundingClientRect, which the
           // zoom scales: at 75% rows just below the pane's bottom edge were not mounted.
