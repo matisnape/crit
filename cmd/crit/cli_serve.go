@@ -16,6 +16,7 @@ import (
 
 	"github.com/tomasz-tomczyk/crit/internal/reviewpath"
 	"github.com/tomasz-tomczyk/crit/internal/server"
+	"github.com/tomasz-tomczyk/crit/internal/uisettings"
 )
 
 // liveSessionArgsTag is the leading element of sessionEntry.Args for a
@@ -120,6 +121,7 @@ func runServe(args []string) {
 	}
 	addr := listener.Addr().(*net.TCPAddr)
 
+	uisettings.WarnIfInvalid(os.Stderr)
 	srv, err := NewServer(nil, frontendFS, sc.ShareURL, sc.ProxyAuth, sc.AuthToken, sc.Author, version, addr.Port, sc.AgentCmd)
 	if err != nil {
 		daemonFatal(pipe, "Error creating server: %v", err)

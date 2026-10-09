@@ -1,4 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { clearAllLivePins } from './livemode-helpers';
+
+test.beforeEach(async ({ request }) => {
+  await clearAllLivePins(request);
+});
 
 // Live and preview mode share the review page's theme palettes: the saved
 // light/dark theme colours the chrome, and Settings offers the theme choice.

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/tomasz-tomczyk/crit/internal/config"
+	"github.com/tomasz-tomczyk/crit/internal/uisettings"
 )
 
 type CommonDaemonFlags struct {
@@ -805,6 +806,10 @@ func StartDaemonInDir(key string, args []string, dir string) (SessionEntry, erro
 	if entry, alive := FindAliveSession(key); alive {
 		return entry, nil
 	}
+
+	// The daemon's own stderr goes to its log file, so problems with the
+	// shared settings file are reported here, where the user is looking.
+	uisettings.WarnIfInvalid(os.Stderr)
 
 	cmd, readEnd, writeEnd, logFile, err := prepareDaemonCmd(key, args, dir)
 	if err != nil {

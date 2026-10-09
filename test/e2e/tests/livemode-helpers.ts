@@ -14,6 +14,9 @@ import { expect, type Page, type APIRequestContext, type FrameLocator } from '@p
 export async function clearAllLivePins(request: APIRequestContext): Promise<void> {
   const resp = await request.delete('/api/comments');
   expect(resp.ok()).toBeTruthy();
+  // Settings live in the daemon's ~/.crit/ui-settings.json and outlive a
+  // browser context; start every test from the defaults.
+  expect((await request.delete('/api/ui-settings')).ok()).toBeTruthy();
 }
 
 /**

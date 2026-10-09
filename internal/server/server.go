@@ -142,6 +142,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 	// Endpoints that work without a ready session
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/api/qr", s.handleQR)
+	mux.HandleFunc("/api/ui-settings", s.handleUISettings)
 
 	// Preview-mode routes — NOT wrapped in withReady (page loads before session).
 	mux.HandleFunc("/preview", s.serveIndexHTML())
@@ -229,7 +230,19 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 	// Static file serving (repo files need session; embedded assets do not)
 	mux.HandleFunc("/files/", s.withReady(s.handleFiles))
 	mux.Handle(precompressedPrefix, servePrecompressed(frontendFS))
-	mux.Handle("/", http.FileServer(http.FS(frontendFS)))
+	// The page shells carry the stored settings (see injectUISettings), so
+	// they never come straight from the file server.
+	fileServer := http.FileServer(http.FS(frontendFS))
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/", "/index.html":
+			s.serveHTML("index.html")(w, r)
+		case "/themes.html":
+			s.serveHTML("themes.html")(w, r)
+		default:
+			fileServer.ServeHTTP(w, r)
+		}
+	})
 
 	s.mux = mux
 	return s, nil
@@ -738,18 +751,19 @@ func (s *Server) serveIndexHTML() http.HandlerFunc {
 // serveHTML serves an embedded HTML page at a clean path (e.g. /themes).
 func (s *Server) serveHTML(name string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		f, err := s.assets.Open(name)
+		page, err := fs.ReadFile(s.assets, name)
 		if err != nil {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
-		defer f.Close()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if _, err := io.Copy(w, f); err != nil {
+		// Settings are shared with other reviews: always re-read on load.
+		w.Header().Set("Cache-Control", "no-store")
+		if _, err := w.Write(s.injectUISettings(page, r)); err != nil {
 			log.Printf("serveHTML %s: %v", name, err)
 		}
 	}

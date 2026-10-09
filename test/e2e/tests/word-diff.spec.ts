@@ -1,8 +1,14 @@
 import { test, expect } from '@playwright/test';
 import {
   loadPage, goSection, jsSection, revealFile, diffLine, showLine,
-  clickWhenHittable,
+  clickWhenHittable, resetUISettings,
 } from './helpers';
+
+// The theme switch below is saved in the fixture's ~/.crit/ui-settings.json,
+// which outlives the browser context; start every test from the defaults.
+test.beforeEach(async ({ request }) => {
+  await resetUISettings(request);
+});
 
 // ============================================================
 // Word-Level Diff Highlighting (Pierre lineDiffType 'word-alt')

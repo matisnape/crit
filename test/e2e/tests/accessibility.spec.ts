@@ -1,9 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { loadPage } from './helpers';
+import { loadPage, resetUISettings } from './helpers';
 
 test.describe('Accessibility', () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, request }) => {
+    await resetUISettings(request);
     await loadPage(page);
   });
 

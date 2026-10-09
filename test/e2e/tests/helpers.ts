@@ -16,6 +16,20 @@ export async function getReviewFilePath(request: APIRequestContext): Promise<str
 export async function clearAllComments(request: APIRequestContext) {
   const response = await request.delete('/api/comments');
   await expect(response).toBeOK();
+  await resetUISettings(request);
+}
+
+// Settings-dialog choices live in the daemon's (temp) ~/.crit/ui-settings.json
+// and outlive a browser context, so every test starts from the defaults.
+export async function resetUISettings(request: APIRequestContext) {
+  await expect(await request.delete('/api/ui-settings')).toBeOK();
+}
+
+/** The settings stored in the daemon's ~/.crit/ui-settings.json. */
+export async function storedUISettings(request: APIRequestContext): Promise<Record<string, unknown>> {
+  const res = await request.get('/api/ui-settings');
+  await expect(res).toBeOK();
+  return (await res.json()).settings;
 }
 
 /** Commit picker rows excluding the virtual working-tree entry. */
