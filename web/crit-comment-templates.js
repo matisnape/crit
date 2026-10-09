@@ -36,7 +36,7 @@
         // A failed read already showed an error; saving the stale copy is the bug.
         if (ok) return saveTemplates(fn(getTemplates()));
       });
-    }).catch(function () { /* one failed edit must not block the later ones */ });
+    }).catch(function (e) { console.error(e); }); // one failed edit must not block the later ones
     return pending;
   }
 
