@@ -6,7 +6,9 @@
 // (internal/server/ui_settings.go), so this runs synchronously in <head> and
 // the first paint already uses the saved theme. Saving sends only the changed
 // key; the server merges it into the file, so a tab holding stale values never
-// reverts another tab's choice. Other tabs pick a change up on reload.
+// reverts another tab's choice. A list edited in place (templates) is re-read
+// with refresh() first, so a stale tab does not drop another tab's entries.
+// Other tabs pick a change up on reload.
 //
 // Reads: window.critUISettings, window.crit.themePalette (apply),
 // window.crit.shared.showToast (save errors, when loaded).
@@ -72,6 +74,28 @@
         });
     }
 
+    // Re-reads one key from the file into this tab's copy, for a change that
+    // builds on the current value (a list) instead of replacing it. Resolves
+    // to whether the read worked; never rejects.
+    function refresh(key) {
+      return Promise.resolve()
+        .then(function () { return d.fetch('/api/ui-settings'); })
+        .then(function (r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        })
+        .then(function (snapNow) {
+          var fresh = (snapNow && snapNow.settings) || {};
+          if (Object.prototype.hasOwnProperty.call(fresh, key)) settings[key] = fresh[key];
+          else delete settings[key];
+          return true;
+        })
+        .catch(function () {
+          reportError('Setting not saved: could not read settings from ' + path);
+          return false;
+        });
+    }
+
     // <html data-theme> plus the light/dark UI palette, before first paint.
     function applyTheme(root) {
       var html = root || (typeof document !== 'undefined' && document.documentElement);
@@ -85,7 +109,7 @@
 
     // This review's identity (its review folder key), for per-review state.
     var review = String(snap.review || '').replace(/[^A-Za-z0-9_-]/g, '');
-    return { KEYS: KEYS, isSetting: isSetting, get: get, all: all, set: set, applyTheme: applyTheme, path: path, review: review };
+    return { KEYS: KEYS, isSetting: isSetting, get: get, all: all, set: set, refresh: refresh, applyTheme: applyTheme, path: path, review: review };
   }
 
   var api = { KEYS: KEYS, create: create };

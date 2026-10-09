@@ -38,6 +38,27 @@
     shared.setCookie('crit-templates', JSON.stringify(templates));
   }
 
+  // Adds or deletes against the file's current list, not this tab's copy from
+  // page load, so a tab opened earlier keeps what another tab saved since.
+  // Queued, so two quick edits in one tab cannot read the same list.
+  // ponytail: two tabs editing in the same instant can still lose one edit
+  // (GET then PATCH is not atomic); a server-side add/remove would close it.
+  var pending = Promise.resolve();
+  function changeTemplates(fn) {
+    var store = ns.uiSettings;
+    if (!store) {
+      saveTemplates(fn(getTemplates()));
+      return Promise.resolve();
+    }
+    pending = pending.then(function () {
+      return store.refresh('templates').then(function (ok) {
+        // A failed read already showed an error; saving the stale copy is the bug.
+        if (ok) return saveTemplates(fn(getTemplates()));
+      });
+    });
+    return pending;
+  }
+
   // --- DOM ---
 
   /**
@@ -62,7 +83,7 @@
         return;
       }
       bar.style.display = '';
-      templates.forEach(function (tmpl, i) {
+      templates.forEach(function (tmpl) {
         var chip = document.createElement('button');
         chip.className = 'template-chip';
         chip.title = tmpl;
@@ -79,10 +100,12 @@
         del.addEventListener('click', function (e) {
           e.preventDefault();
           e.stopPropagation();
-          var t = getTemplates();
-          t.splice(i, 1);
-          saveTemplates(t);
-          populate();
+          // By text: another tab may have changed the list since this render.
+          changeTemplates(function (t) {
+            var at = t.indexOf(tmpl);
+            if (at !== -1) t.splice(at, 1);
+            return t;
+          }).then(populate);
         });
         chip.appendChild(del);
 
@@ -104,11 +127,9 @@
     // call bar._saveNew(body) and the bar refreshes automatically.
     bar._saveNew = function (body) {
       if (!body) return;
-      var t = getTemplates();
-      t.push(body);
-      saveTemplates(t);
-      populate();
+      var done = changeTemplates(function (t) { t.push(body); return t; }).then(populate);
       if (onSaveNew) onSaveNew(body);
+      return done;
     };
 
     return bar;
