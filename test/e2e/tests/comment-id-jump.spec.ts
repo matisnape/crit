@@ -53,6 +53,13 @@ async function scrollToTop(page: Page) {
   await reviewScroller(page).evaluate((el) => { el.scrollTop = 0; });
 }
 
+// A full page load with #<id> (goto from '/' to '/#id' would only change the hash).
+async function openFresh(page: Page, id: string) {
+  await page.goto('about:blank');
+  await page.goto('/#' + id);
+  await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
+}
+
 async function setHash(page: Page, id: string) {
   await page.evaluate((h) => { window.location.hash = h; }, '#' + id);
 }
@@ -80,11 +87,11 @@ test.describe('Jump to a comment by ID', () => {
     expect(await page.evaluate(() => (window as unknown as { __noReload?: boolean }).__noReload)).toBe(true);
   });
 
-  test('CRIT-05.1 the highlight lasts about 2 seconds', async ({ page, request }) => {
+  test('CRIT-05.1 opening the page with #<id> jumps there and the highlight lasts about 2 seconds', async ({ page, request }) => {
     const [line] = await hunkLines(request, FILE);
     const c = await addComment(request, FILE, line, 'Flash me');
     await loadPage(page);
-    await page.goto('/#' + c.id);
+    await openFresh(page, c.id);
     const target = card(page, c.id);
     await expectJumpedTo(target);
     await expect(target).not.toHaveClass(/comment-ref-flash/, { timeout: 3_000 });
@@ -96,6 +103,18 @@ test.describe('Jump to a comment by ID', () => {
     await loadPage(page);
     await revealFile(page, FILE);
     await fileHeader(page, FILE).locator('.file-header-viewed input').check();
+    await expect(card(page, c.id)).toHaveCount(0);
+    await scrollToTop(page);
+    await setHash(page, c.id);
+    await expectJumpedTo(card(page, c.id));
+  });
+
+  test('CRIT-05.3 a comment in a collapsed file is revealed', async ({ page, request }) => {
+    const [line] = await hunkLines(request, FILE);
+    const c = await addComment(request, FILE, line, 'In a collapsed file');
+    await loadPage(page);
+    await revealFile(page, FILE);
+    await fileHeader(page, FILE).locator('.file-header-chevron').click();
     await expect(card(page, c.id)).toHaveCount(0);
     await scrollToTop(page);
     await setHash(page, c.id);
@@ -133,8 +152,7 @@ test.describe('Jump to a comment by ID', () => {
 
   test('CRIT-05.4 an unknown ID shows a message and leaves the page alone', async ({ page }) => {
     await loadPage(page);
-    await page.goto('/#c_000000');
-    await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
+    await openFresh(page, 'c_000000');
     await expect(page.locator('.mini-toast')).toHaveText('Comment c_000000 not found in this review');
     expect(await reviewScroller(page).evaluate((el) => el.scrollTop)).toBe(0);
     // The rest of the page still works.

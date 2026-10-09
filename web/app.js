@@ -6279,15 +6279,15 @@
     if (isGeneral) {
       parts.wrapper.style.cursor = 'pointer';
       parts.wrapper.addEventListener('click', function(e) {
-        if (e.target.closest('.comment-actions')) return;
+        if (e.target.closest('.comment-actions, a')) return;
         scrollToReviewComment(comment.id);
       });
     } else {
       // File comments are clickable to scroll to inline location
       parts.wrapper.style.cursor = 'pointer';
       parts.wrapper.addEventListener('click', function(e) {
-        // Don't scroll if clicking action buttons
-        if (e.target.closest('.comment-actions')) return;
+        // Don't scroll if clicking action buttons or links (comment ID links jump themselves)
+        if (e.target.closest('.comment-actions, a')) return;
         scrollToComment(comment.id, filePath);
       });
     }

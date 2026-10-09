@@ -1,4 +1,4 @@
-import { test, expect, type Locator, type Page } from '@playwright/test';
+import { test, expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import { clearAllLivePins, getIframe, seedLivePin } from './livemode-helpers';
 
 // CRIT-05.8: #c_<id> and comment IDs in comment text work in live mode.
@@ -21,6 +21,13 @@ function row(page: Page, id: string): Locator {
   return page.locator(`#commentsPanel [data-comment-id="${id}"]`).first();
 }
 
+// Fillers so that the last pin's row starts below the panel fold.
+async function seedFillers(request: APIRequestContext) {
+  for (let i = 0; i < 14; i++) {
+    await seedLivePin(request, `Filler pin ${i}\n\nwith a second paragraph to take some room`, ANCHOR);
+  }
+}
+
 async function expectPanelJumpedTo(page: Page, id: string) {
   await expect(page.locator('#commentsPanel')).not.toHaveClass(/comments-panel-hidden/);
   const target = row(page, id);
@@ -35,9 +42,13 @@ test.describe('live mode — jump to a comment by ID', () => {
   });
 
   test('CRIT-05.8 opening /live#<id> opens the panel, scrolls to the comment and highlights it', async ({ page, request }) => {
+    const other = await seedLivePin(request, 'Second target', ANCHOR);
+    await seedFillers(request);
     const pin = await seedLivePin(request, 'Pinned target', ANCHOR);
-    // Start with the panel closed (the choice is remembered for this review).
     await openLive(page);
+    await expect(page.locator(`.comment-card[data-id="${pin.id}"]`)).toHaveCount(1);
+    await expect(row(page, pin.id)).not.toBeInViewport();
+    // Start with the panel closed (the choice is remembered for this review).
     await page.locator('.comments-panel-close').click();
     await expect(page.locator('#commentsPanel')).toHaveClass(/comments-panel-hidden/);
     // A fresh load, not a same-document hash change.
@@ -46,15 +57,18 @@ test.describe('live mode — jump to a comment by ID', () => {
     await expectPanelJumpedTo(page, pin.id);
 
     // Changing the address later jumps again without a reload.
-    const other = await seedLivePin(request, 'Second target', ANCHOR);
-    await expect(page.locator(`.comment-card[data-id="${other.id}"]`)).toBeVisible();
+    await expect(row(page, other.id)).not.toBeInViewport();
     await page.evaluate((h) => { window.location.hash = h; }, '#' + other.id);
     await expect(row(page, other.id)).toHaveClass(/crit-live-thread-highlight/);
+    await expect(row(page, other.id)).toBeInViewport();
   });
 
   test('CRIT-05.8 an ID in another comment is a link to that comment', async ({ page, request }) => {
+    const src = await seedLivePin(request, 'placeholder', ANCHOR);
+    await seedFillers(request);
     const pin = await seedLivePin(request, 'Pinned target', ANCHOR);
-    const src = await seedLivePin(request, `See ${pin.id} and c_000000`, ANCHOR);
+    const res = await request.put(`/api/comment/${src.id}?path=${encodeURIComponent('/')}`, { data: { body: `See ${pin.id} and c_000000` } });
+    expect(res.ok()).toBeTruthy();
     await openLive(page);
     const links = page.locator(`.comment-card[data-id="${src.id}"] a.comment-ref`);
     await expect(links).toHaveText([pin.id]);
@@ -62,6 +76,7 @@ test.describe('live mode — jump to a comment by ID', () => {
       const log = (window as unknown as { __critLiveMessages?: { type: string }[] }).__critLiveMessages;
       return Array.isArray(log) && log.some((e) => e.type === 'agent-ready');
     }), { timeout: 15_000 }).toBe(true);
+    await expect(row(page, pin.id)).not.toBeInViewport();
     await links.first().click();
     await expectPanelJumpedTo(page, pin.id);
   });
