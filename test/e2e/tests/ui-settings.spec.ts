@@ -1,5 +1,5 @@
 import { test, expect, type Page, type ConsoleMessage } from '@playwright/test';
-import { spawn, type ChildProcess } from 'child_process';
+import { execFile, spawn, type ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as net from 'net';
 import * as os from 'os';
@@ -30,7 +30,7 @@ function freePort(): Promise<number> {
   });
 }
 
-interface Review { proc: ChildProcess; port: number; stderr: () => string; client: boolean; dir: string }
+interface Review { proc: ChildProcess; exited: Promise<unknown>; port: number; stderr: () => string; client: boolean; dir: string; file: string }
 
 const running: Review[] = [];
 let home = '';
@@ -51,13 +51,11 @@ async function startReview(opts: { file?: string; content?: string; dir?: string
   let err = '';
   const args = opts.args ?? [file];
   const cmd = opts.client ? ['--no-open', '--port', String(port), ...args] : ['_serve', '--no-open', '--port', String(port), ...args];
-  const proc = spawn(critBin(), cmd, {
-    cwd: dir,
-    env: { ...process.env, HOME: home, USERPROFILE: home, CRIT_NO_UPDATE_CHECK: '1' },
-    stdio: ['ignore', 'ignore', 'pipe'],
-  });
+  const proc = spawn(critBin(), cmd, { cwd: dir, env: critEnv(), stdio: ['ignore', 'ignore', 'pipe'] });
+  // Created at spawn: a second stop must not wait for an 'exit' already fired.
+  const exited = new Promise(resolve => proc.once('exit', resolve));
   proc.stderr!.on('data', d => { err += d.toString(); });
-  const review = { proc, port, stderr: () => err, client: !!opts.client, dir };
+  const review = { proc, exited, port, stderr: () => err, client: !!opts.client, dir, file };
   running.push(review);
   await expect.poll(async () => {
     try { return (await fetch(`http://127.0.0.1:${port}/api/health`)).status; } catch { return 0; }
@@ -65,12 +63,27 @@ async function startReview(opts: { file?: string; content?: string; dir?: string
   return review;
 }
 
+function critEnv() {
+  return { ...process.env, HOME: home, USERPROFILE: home, CRIT_NO_UPDATE_CHECK: '1' };
+}
+
+function gone(r: Review) {
+  // A process killed by a signal (always, on Windows) has signalCode, not exitCode.
+  return r.proc.exitCode !== null || r.proc.signalCode !== null;
+}
+
 async function stopReview(r: Review) {
-  if (r.proc.exitCode !== null) return;
-  const exited = new Promise(resolve => r.proc.once('exit', resolve));
-  // Ctrl+C on a client also stops the daemon it started.
+  if (r.client) {
+    // A client's background daemon holds its log in HOME open. On Windows a
+    // kill ends only the client, so `crit stop` stops the daemon over HTTP
+    // and waits for it to exit before the HOME is removed.
+    await new Promise(resolve => execFile(critBin(), ['stop', r.file], { cwd: r.dir, env: critEnv(), timeout: 20_000 }, resolve));
+  }
+  if (gone(r)) return;
   r.proc.kill(r.client ? 'SIGINT' : 'SIGTERM');
-  await exited;
+  const timer = setTimeout(() => r.proc.kill('SIGKILL'), 10_000);
+  await r.exited;
+  clearTimeout(timer);
 }
 
 function stored(): Record<string, unknown> | null {
@@ -104,7 +117,7 @@ test.beforeEach(() => {
 
 test.afterEach(async () => {
   await Promise.all(running.splice(0).map(stopReview));
-  fs.rmSync(home, { recursive: true, force: true });
+  fs.rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
 test('CRIT-02.1 a theme chosen in one review applies to another review on another port and host', async ({ browser }) => {
