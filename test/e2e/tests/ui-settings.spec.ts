@@ -313,6 +313,102 @@ test('CRIT-02.4 the first load imports the Settings keys of an old cookie, once'
   await ctx.close();
 });
 
+// Opens a comment form on the first markdown line (a one-file review has no
+// file header, so no mdSection); returns the form's template chips.
+async function templateChips(page: Page) {
+  await page.locator('.line-block').first().hover();
+  await page.locator('.line-comment-gutter').first().click();
+  await expect(page.locator('.comment-form textarea')).toBeVisible();
+  return page.locator('.comment-form .template-chip-label');
+}
+
+async function saveTemplate(page: Page, text: string) {
+  await page.locator('.comment-form textarea').fill(text);
+  await page.locator('.comment-form-actions button', { hasText: '+ Template' }).click();
+  await page.locator('.save-template-overlay button', { hasText: 'Save' }).click();
+  await expect(page.locator('.save-template-overlay')).toBeHidden();
+}
+
+test('CRIT-06.1 a template saved in one review is offered by another review on another port and host', async ({ browser }) => {
+  const a = await startReview();
+  const b = await startReview();
+  const ctx = await browser.newContext();
+  const pageA = await ctx.newPage();
+  await openReview(pageA, `http://localhost:${a.port}/`);
+  await templateChips(pageA);
+  await saveTemplate(pageA, 'Needs a test for this');
+  await expect.poll(() => stored()).toEqual({ templates: ['Needs a test for this'] });
+
+  const pageB = await ctx.newPage();
+  await openReview(pageB, `http://127.0.0.1:${b.port}/`);
+  await expect(await templateChips(pageB)).toHaveText(['Needs a test for this']);
+  await ctx.close();
+});
+
+test('CRIT-06.2 the first load imports the templates of an old crit-templates cookie, once', async ({ browser }) => {
+  const a = await startReview();
+  const b = await startReview();
+  const ctx = await browser.newContext();
+  const old = ['Fix typo', 'Consider a helper'];
+  await ctx.addCookies([{ name: 'crit-templates', value: encodeURIComponent(JSON.stringify(old)), url: `http://localhost:${a.port}` }]);
+  const page = await ctx.newPage();
+  await openReview(page, `http://localhost:${a.port}/`);
+  await expect(await templateChips(page)).toHaveText(old);
+  expect(stored()).toEqual({ templates: old });
+  const before = fs.readFileSync(settingsPath, 'utf8');
+
+  // Another host's cookie no longer matters once the file holds templates.
+  await ctx.addCookies([{ name: 'crit-templates', value: encodeURIComponent(JSON.stringify(['From another host'])), url: `http://127.0.0.1:${b.port}` }]);
+  const other = await ctx.newPage();
+  await openReview(other, `http://127.0.0.1:${b.port}/`);
+  await expect(await templateChips(other)).toHaveText(old);
+  expect(fs.readFileSync(settingsPath, 'utf8')).toBe(before);
+  await ctx.close();
+});
+
+test('CRIT-06.3 a template deleted in one review is gone from another after a reload', async ({ browser }) => {
+  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+  fs.writeFileSync(settingsPath, JSON.stringify({ templates: ['Fix typo', 'LGTM', 'Needs a test'] }));
+  const a = await startReview();
+  const b = await startReview();
+  const ctx = await browser.newContext();
+  const pageA = await ctx.newPage();
+  const pageB = await ctx.newPage();
+  await openReview(pageA, `http://localhost:${a.port}/`);
+  await openReview(pageB, `http://127.0.0.1:${b.port}/`);
+  await expect(await templateChips(pageB)).toHaveText(['Fix typo', 'LGTM', 'Needs a test']);
+
+  const chipsA = await templateChips(pageA);
+  await pageA.locator('.comment-form .template-chip', { hasText: 'LGTM' }).locator('.template-chip-delete').click();
+  await expect(chipsA).toHaveText(['Fix typo', 'Needs a test']);
+  await expect.poll(() => stored()).toEqual({ templates: ['Fix typo', 'Needs a test'] });
+
+  await pageB.reload();
+  await expect(pageB.locator('[data-line], .line-block').first()).toBeVisible();
+  await expect(await templateChips(pageB)).toHaveText(['Fix typo', 'Needs a test']);
+  await ctx.close();
+});
+
+test('CRIT-06.4 an unreadable templates entry offers no templates and keeps every other setting', async ({ page }) => {
+  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+  // The templates value is a broken JSON string, not a list.
+  fs.writeFileSync(settingsPath, JSON.stringify({ theme: 'dark', width: 'wide', templates: '["Fix typo",' }));
+  const r = await startReview();
+  // Wait out session init, so the page's first requests are not 503s.
+  await expect.poll(async () => (await fetch(`http://127.0.0.1:${r.port}/api/session`)).status, { timeout: 15_000 }).toBe(200);
+  const pageErrors: Error[] = [];
+  const consoleErrors: string[] = [];
+  page.on('pageerror', e => pageErrors.push(e));
+  page.on('console', (m: ConsoleMessage) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
+  await openReview(page, `http://localhost:${r.port}/`);
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(page.locator('html')).toHaveAttribute('data-width', 'wide');
+  await expect(await templateChips(page)).toHaveCount(0);
+  await expect(page.locator('.comment-form .comment-template-bar')).toBeHidden();
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
 test('CRIT-02.5 the first painted frame already uses the stored Dark theme on Slow 3G', async ({ browser }) => {
   test.setTimeout(120_000);
   fs.mkdirSync(path.dirname(settingsPath), { recursive: true });

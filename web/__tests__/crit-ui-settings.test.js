@@ -75,3 +75,12 @@ test('CRIT-02.3 the store exposes a cookie-safe review identity', () => {
   assert.equal(create({ review: 'a;b=c d' }, {}).review, 'abcd');
   assert.equal(create({}, {}).review, '');
 });
+
+test('CRIT-06.3 refresh drops a key the file no longer has', async () => {
+  const store = create({ settings: { templates: ['X'], theme: 'dark' } }, {
+    fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve({ settings: { theme: 'dark' } }) }),
+  });
+  assert.equal(await store.refresh('templates'), true);
+  assert.equal(store.get('templates'), undefined);
+  assert.equal('templates' in store.all(), false);
+});

@@ -45,10 +45,11 @@ var bools = map[string]bool{"hideResolved": true, "ignoreWhitespace": true, "liv
 // Mirrors MAX_CODE_FONT_LENGTH in web/crit-shared.js.
 const maxCodeFontLength = 256
 
-// IsSetting reports whether key is a Settings-dialog control stored here.
+// IsSetting reports whether key is a machine-wide UI setting stored here (a
+// Settings-dialog choice, or the saved comment templates).
 func IsSetting(key string) bool {
 	_, enum := enums[key]
-	return enum || bools[key] || key == "lightPalette" || key == "darkPalette" || key == "codeFont" || key == "shortcuts"
+	return enum || bools[key] || key == "lightPalette" || key == "darkPalette" || key == "codeFont" || key == "shortcuts" || key == "templates"
 }
 
 // Validate reports why value is not acceptable for key, or nil.
@@ -70,6 +71,8 @@ func Validate(key string, value any) error {
 		return nil
 	case key == "shortcuts":
 		return validateShortcuts(value)
+	case key == "templates":
+		return validateTemplates(value)
 	}
 	return fmt.Errorf("%s: unknown setting", key)
 }
@@ -100,6 +103,20 @@ func validateShortcuts(value any) error {
 	for id, b := range m {
 		if _, ok := b.(string); !ok {
 			return fmt.Errorf("shortcuts.%s: %s is not a key binding", id, describe(b))
+		}
+	}
+	return nil
+}
+
+// validateTemplates accepts the saved comment templates: a list of strings.
+func validateTemplates(value any) error {
+	list, ok := value.([]any)
+	if !ok {
+		return fmt.Errorf("templates: %s is not a list", describe(value))
+	}
+	for _, t := range list {
+		if _, ok := t.(string); !ok {
+			return fmt.Errorf("templates: %s is not a template text", describe(t))
 		}
 	}
 	return nil

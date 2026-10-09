@@ -113,10 +113,44 @@ func (s *Server) injectUISettings(page []byte, r *http.Request) []byte {
 	data, err := json.Marshal(struct {
 		uisettings.Snapshot
 		Review string `json:"review,omitempty"`
-	}{pageUISettings(r), review}) // escapes <, > and &
+	}{importTemplatesCookie(r, pageUISettings(r)), review}) // escapes <, > and &
 	if err != nil {
 		return page
 	}
 	script := append(append([]byte("<script>window.critUISettings="), data...), ";</script>"...)
 	return bytes.Replace(page, uiSettingsMarker, script, 1)
+}
+
+// importTemplatesCookie moves the saved comment templates out of this host's
+// crit-templates cookie (where older versions kept them) into the file, once:
+// only while the file has no templates key. Deleting the last template stores
+// [], so a stale cookie on another host cannot bring deleted ones back.
+// ponytail: the check and the save are not one locked step. Two first loads at
+// the same instant, from two hosts with different cookies, can both import and
+// the last save wins; a locked check-and-save in uisettings would close it.
+func importTemplatesCookie(r *http.Request, snap uisettings.Snapshot) uisettings.Snapshot {
+	if _, ok := snap.Settings["templates"]; ok {
+		return snap
+	}
+	c, err := r.Cookie("crit-templates")
+	if err != nil {
+		return snap
+	}
+	raw, err := url.PathUnescape(c.Value)
+	if err != nil {
+		return snap
+	}
+	var list any
+	if json.Unmarshal([]byte(raw), &list) != nil || uisettings.Validate("templates", list) != nil {
+		return snap
+	}
+	// Saving would drop the unreadable parts; a page load never does that.
+	if _, problem := uisettings.Load(); problem != "" {
+		return snap
+	}
+	if saved, err := uisettings.Save(map[string]any{"templates": list}, false); err == nil {
+		return saved
+	}
+	snap.Settings["templates"] = list // unwritable: still show this page with them
+	return snap
 }

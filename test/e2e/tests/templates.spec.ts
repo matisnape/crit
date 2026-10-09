@@ -12,18 +12,10 @@ async function openCommentForm(page: import('@playwright/test').Page) {
   await expect(page.locator('.comment-form')).toBeVisible();
 }
 
-// Helper: clear template cookie
-async function clearTemplates(page: import('@playwright/test').Page) {
-  await page.evaluate(() => {
-    document.cookie = 'crit-templates=; path=/; max-age=0';
-  });
-}
-
 test.describe('Comment Templates — Git Mode', () => {
   test.beforeEach(async ({ page, request }) => {
     await clearAllComments(request);
     await loadPage(page);
-    await clearTemplates(page);
     await switchToDocumentView(page);
   });
 
