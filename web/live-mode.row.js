@@ -57,6 +57,7 @@
     var authorColorIndex = deps.authorColorIndex || function () { return 0; };
     var iconEdit = deps.iconEdit || '';
     var iconDelete = deps.iconDelete || '';
+    var linkifyDom = deps.linkifyDom;
 
     return function buildLiveReplyList(comment, _filePath, extraClass) {
       var container = document.createElement('div');
@@ -132,6 +133,7 @@
         } else {
           body.textContent = r.body || '';
         }
+        if (typeof linkifyDom === 'function') linkifyDom(body);
         row.appendChild(body);
         container.appendChild(row);
       }
@@ -223,6 +225,7 @@
       authorColorIndex: deps.authorColorIndex,
       iconEdit: deps.iconEdit || '',
       iconDelete: deps.iconDelete || '',
+      linkifyDom: deps.linkifyDom,
     });
 
     var parts = card.buildCommentCard(c, routePath, {
@@ -275,6 +278,7 @@
         renderReplyList: replyListBuilder,
         createReplyInput: function () { return document.createElement('div'); },
         iconChevron: deps.iconChevron || '',
+        linkifyDom: deps.linkifyDom,
       },
     });
 

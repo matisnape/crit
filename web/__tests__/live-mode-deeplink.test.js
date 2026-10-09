@@ -28,3 +28,10 @@ test('shouldClearOnRouteChange clears fragment when path differs from open pin',
 test('shouldClearOnRouteChange returns false when no pin is open', () => {
   assert.equal(dl.shouldClearOnRouteChange({ openPin: null }, '/x'), false);
 });
+
+test('CRIT-05.8 parseDeepLink accepts a bare comment ID fragment', () => {
+  assert.equal(dl.parseDeepLink('#c_49784e'), 'c_49784e');
+  assert.equal(dl.parseDeepLink('#c_000000'), 'c_000000');
+  assert.equal(dl.parseDeepLink('#installation'), null);
+  assert.equal(dl.parseDeepLink('#xc_49784e'), null);
+});

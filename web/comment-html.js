@@ -37,7 +37,7 @@
   // Crit-generated classes only — suggestion diffs + ref spans.
   // language-* survives so fenced code can be highlighted after sanitize
   // (crit-code-highlight.js upgrades the mounted block).
-  var SAFE_CLASS = /^(?:language-[\w-]+|file-ref|comment-ref|comment-ref-code|suggestion(?:-[\w-]+)+|diff-word-(?:del|add))$/;
+  var SAFE_CLASS = /^(?:language-[\w-]+|file-ref|comment-ref|suggestion(?:-[\w-]+)+|diff-word-(?:del|add))$/;
   var SAFE_COMMENT_REF = /^(?:c|r|rp)_[a-f0-9]{6,}$/;
   var SAFE_URL = /^(?:(?:https?|mailto):|(?:\/|\.{1,2}\/|#))/i;
 

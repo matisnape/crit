@@ -36,93 +36,87 @@
     return '<span class="file-ref">' + escapeHtml(path) + '</span>';
   };
 
-  // Override code_inline so backtick-wrapped comment IDs render as the same chip.
-  const defaultCodeInline = commentMd.renderer.rules.code_inline || function(tokens, idx, options, _env, self) {
-    return self.renderToken(tokens, idx, options);
-  };
-  commentMd.renderer.rules.code_inline = function(tokens, idx, options, env, self) {
-    const content = tokens[idx].content;
-    if (/^(c|r|rp)_[a-f0-9]{6,}$/.test(content)) {
-      return '<span class="comment-ref comment-ref-code" data-ref-id="' + escapeHtml(content) + '" tabindex="0" role="link">' + escapeHtml(content) + '</span>';
+  // ===== Comment ID links (#c_…, #r_…, #rp_…) =====
+  // An ID in the address or in comment text jumps to that comment or reply.
+  // Text IDs become <a href="#id"> links (only IDs that exist, never inside
+  // code); following one changes the hash, and the hashchange listener jumps.
+  const COMMENT_ID_HASH = /^#((?:c|r|rp)_[a-f0-9]{6,})$/;
+
+  // { filePath ('' = review-level), comment, replyId } for an ID, or null.
+  function findCommentTarget(id) {
+    const lists = files.map(function(f) { return { path: f.path, comments: f.comments || [] }; });
+    lists.push({ path: '', comments: reviewComments || [] });
+    for (const list of lists) {
+      for (const c of list.comments) {
+        if (c.id === id) return { filePath: list.path, comment: c, replyId: null };
+        if ((c.replies || []).some(function(r) { return r.id === id; })) {
+          return { filePath: list.path, comment: c, replyId: id };
+        }
+      }
     }
-    return defaultCodeInline(tokens, idx, options, env, self);
-  };
+    return null;
+  }
 
   function linkifyCommentRefsInDom(el) {
-    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
-    const textNodes = [];
-    let node;
-    while ((node = walker.nextNode())) {
-      // skip text inside code/pre elements and already-linked chips
-      if (node.parentNode.closest('code, pre, .comment-ref')) continue;
-      textNodes.push(node);
-    }
-    const re = /((?:c|r|rp)_[a-f0-9]{6,})/g;
-    textNodes.forEach(function(tn) {
-      if (!re.test(tn.nodeValue)) { re.lastIndex = 0; return; }
-      re.lastIndex = 0;
-      const frag = document.createDocumentFragment();
-      let last = 0, m;
-      while ((m = re.exec(tn.nodeValue)) !== null) {
-        if (m.index > last) frag.appendChild(document.createTextNode(tn.nodeValue.slice(last, m.index)));
-        const span = document.createElement('span');
-        span.className = 'comment-ref';
-        span.dataset.refId = m[1];
-        span.textContent = m[1];
-        span.tabIndex = 0;
-        span.setAttribute('role', 'link');
-        frag.appendChild(span);
-        last = m.index + m[0].length;
-      }
-      if (last < tn.nodeValue.length) frag.appendChild(document.createTextNode(tn.nodeValue.slice(last)));
-      tn.parentNode.replaceChild(frag, tn);
-    });
+    window.crit.commentCardHelpers.linkifyCommentRefs(el, function(id) { return !!findCommentTarget(id); });
   }
 
-  // Scroll/expand/flash a comment card located anywhere in the document, given just its id.
-  // Distinct from scrollToComment(commentId, filePath) below — that one needs filePath context.
-  function scrollToCommentRef(id) {
-    if (pierreViewActive()) {
-      const owner = files.find(function(f) {
-        return (f.comments || []).some(function(c) { return c.id === id; });
-      });
-      if (owner) pierreJumpToComment(id, owner.path, flashCommentRefCard);
-      return;
-    }
-    // Story view: the card is in the chapter pane when its chapter is shown.
-    const card = document.querySelector('.comment-card[data-comment-id="' + CSS.escape(id) + '"]');
-    if (!card) return;
-    flashCommentRefCard(card);
-    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
-
-  function flashCommentRefCard(card) {
-    const id = card.dataset.commentId;
+  // Expand the card, scroll the card (or its reply) into view and flash it.
+  function flashCommentRefTarget(card, replyId) {
     if (card.classList.contains('collapsed')) {
-      card.classList.remove('collapsed');
-      if (typeof commentCollapseOverrides !== 'undefined') commentCollapseOverrides[id] = false;
+      const toggle = card.querySelector('.comment-collapse-btn');
+      if (toggle) toggle.click(); else card.classList.remove('collapsed');
     }
-    card.classList.remove('comment-ref-flash');
-    void card.offsetWidth;
-    card.classList.add('comment-ref-flash');
-    card.addEventListener('animationend', function() {
-      card.classList.remove('comment-ref-flash');
+    // Cards built before the reveal (story chapters) get the class here.
+    const block = card.closest('.comment-block');
+    if (block && revealedCommentIds.has(card.dataset.commentId)) block.classList.add('comment-revealed');
+    const el = (replyId && card.querySelector('[data-reply-id="' + CSS.escape(replyId) + '"]')) || card;
+    const list = document.getElementById('filesContainer');
+    if (list && list.contains(el)) scrollPierreElementIntoView(el);
+    else el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.remove('comment-ref-flash');
+    void el.offsetWidth;
+    el.classList.add('comment-ref-flash');
+    el.addEventListener('animationend', function() {
+      el.classList.remove('comment-ref-flash');
     }, { once: true });
   }
 
-  document.addEventListener('click', function(e) {
-    const ref = e.target.closest && e.target.closest('.comment-ref');
-    if (!ref) return;
-    e.preventDefault();
-    scrollToCommentRef(ref.dataset.refId);
+  function jumpToCommentId(id) {
+    const target = findCommentTarget(id);
+    if (!target) {
+      showMiniToast('Comment ' + id + ' not found in this review');
+      return;
+    }
+    commentCollapseOverrides[target.comment.id] = false;
+    if (isHiddenResolved(target.comment)) {
+      // Show this one thread; the stored Hide resolved setting stays as it is.
+      revealedCommentIds.add(target.comment.id);
+      if (target.filePath) refreshPierreFile(target.filePath);
+      else renderReviewConversation();
+    }
+    const done = function(card) { flashCommentRefTarget(card, target.replyId); };
+    if (target.filePath) scrollToComment(target.comment.id, target.filePath, done);
+    else scrollToReviewComment(target.comment.id, done);
+  }
+
+  function jumpToHashComment() {
+    const m = COMMENT_ID_HASH.exec(location.hash);
+    if (m) jumpToCommentId(m[1]);
+  }
+  // Until init() has loaded the comments, every ID would be "not found";
+  // init() itself jumps to the hash once they are in.
+  let hashJumpReady = false;
+  window.addEventListener('hashchange', function() {
+    if (hashJumpReady) jumpToHashComment();
   });
 
-  document.addEventListener('keydown', function(e) {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    const ref = e.target.closest && e.target.closest('.comment-ref');
-    if (!ref) return;
+  // Following a link to the hash already in the address fires no hashchange.
+  document.addEventListener('click', function(e) {
+    const ref = e.target.closest && e.target.closest('a.comment-ref');
+    if (!ref || location.hash !== '#' + ref.dataset.refId) return;
     e.preventDefault();
-    scrollToCommentRef(ref.dataset.refId);
+    jumpToCommentId(ref.dataset.refId);
   });
 
   // ===== Attachment Image Src Rewrite =====
@@ -411,6 +405,12 @@
   // (incl. port), cookies are host-scoped.
   let hideResolvedState = getSetting('hideResolved', false);
   function isHideResolved() { return hideResolvedState; }
+  // Resolved threads opened by a jump to their ID stay shown on this page
+  // while Hide resolved is on. Never persisted.
+  const revealedCommentIds = new Set();
+  function isHiddenResolved(c) {
+    return hideResolvedState && !!c.resolved && !revealedCommentIds.has(c.id);
+  }
   function setHideResolved(v) {
     hideResolvedState = !!v;
     setSetting('hideResolved', hideResolvedState);
@@ -1166,6 +1166,8 @@
     scrollToHashHeading();
     // Story layer (opt-in). No-op when session.story is absent.
     applyStoryPresence();
+    hashJumpReady = true;
+    jumpToHashComment();
     updateDiffModeToggle();
   }
 
@@ -1659,6 +1661,7 @@
     if (!pierreView || !pierreViewActive()) return;
     const file = getFileByPath(filePath);
     if (file && file.collapsed) pierreView.setCollapsed(file, false);
+    pierreAlignSeq++;
     ignoreTreeObserverUntil = Date.now() + 400;
     updateTreeActive(filePath);
     return pierreView.scrollToFile(filePath);
@@ -1750,16 +1753,15 @@
   function pierreAnnotationsFor(file) {
     const A = window.crit.pierreAdapter;
     const out = [];
-    const hideResolved = isHideResolved();
     if (pierrePlaceholderText(file)) {
       // No lines to anchor to: file-level threads, every line comment as
       // outdated, then the placeholder.
       const lineComments = (file.comments || []).filter(function(c) {
-        return c.scope !== 'file' && !(hideResolved && c.resolved);
+        return c.scope !== 'file' && !isHiddenResolved(c);
       });
       for (let i = 0; i < (file.comments || []).length; i++) {
         const c = file.comments[i];
-        if (c.scope === 'file' && !(hideResolved && c.resolved)) out.push(A.annotationForComment(c));
+        if (c.scope === 'file' && !isHiddenResolved(c)) out.push(A.annotationForComment(c));
       }
       if (lineComments.length) out.push({ side: 'additions', lineNumber: 0, metadata: { kind: 'outdated', id: file.path } });
       out.push({ side: 'additions', lineNumber: 0, metadata: { kind: 'placeholder', id: file.path } });
@@ -1770,7 +1772,7 @@
       // file-level threads and the file form sit above it.
       for (let i = 0; i < (file.comments || []).length; i++) {
         const c = file.comments[i];
-        if (c.scope === 'file' && !(hideResolved && c.resolved)) out.push(A.annotationForComment(c));
+        if (c.scope === 'file' && !isHiddenResolved(c)) out.push(A.annotationForComment(c));
       }
       const fileForm = getFileComposeForm(file.path);
       if (fileForm && !fileForm.editingId) out.push(A.annotationForForm(fileForm));
@@ -1782,7 +1784,7 @@
       let beyondEnd = false;
       for (let i = 0; i < (file.comments || []).length; i++) {
         const c = file.comments[i];
-        if (hideResolved && c.resolved) continue;
+        if (isHiddenResolved(c)) continue;
         if (c.scope !== 'file' && c.end_line > lineCount) { beyondEnd = true; continue; }
         out.push(A.annotationForComment(c));
       }
@@ -1800,7 +1802,7 @@
     let outdated = false;
     for (let i = 0; i < (file.comments || []).length; i++) {
       const c = file.comments[i];
-      if (hideResolved && c.resolved) continue;
+      if (isHiddenResolved(c)) continue;
       if (c.scope !== 'file' && !lineKeys.has(c.end_line + ':' + (c.side === 'old' ? 'old' : ''))) {
         outdated = true;
         continue;
@@ -1910,7 +1912,7 @@
     for (let i = 0; i < file.comments.length; i++) {
       const c = file.comments[i];
       if (anchored(c)) continue;
-      if (isHideResolved() && c.resolved) continue;
+      if (isHiddenResolved(c)) continue;
       const el = c.resolved ? createResolvedElement(c, filePath) : createCommentElement(c, filePath);
       el.classList.add('outdated-comment');
       const headerLeft = el.querySelector('.comment-header-left');
@@ -2285,11 +2287,16 @@
   // ancestor scroll container. The comments panel and other fixed chrome can
   // otherwise make native scrollIntoView move the document instead of the
   // virtualized review list.
+  // Each alignment takes a sequence number; a newer alignment, file jump or
+  // comment jump bumps it, so a running loop never scrolls the list back.
+  let pierreAlignSeq = 0;
   function scrollPierreElementIntoView(el) {
     const root = document.getElementById('filesContainer');
     if (!root || !el) return;
+    const seq = ++pierreAlignSeq;
     let frames = 0;
     (function align() {
+      if (seq !== pierreAlignSeq) return;
       const rootRect = root.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
       const offset = elRect.top - rootRect.top - (root.clientHeight - elRect.height) / 2;
@@ -2309,6 +2316,7 @@
   let pierreJumpSeq = 0;
   function pierreJumpToComment(commentId, filePath, done) {
     if (!pierreView) return;
+    pierreAlignSeq++;
     const seq = ++pierreJumpSeq;
     const isCurrent = function() { return seq === pierreJumpSeq; };
     const card = function() {
@@ -2419,14 +2427,13 @@
   // so a refresh re-derives only files whose ranges or hunks changed.
   const pierreRangeCache = new Map(); // path → { key, commented, forming }
   function pierreCommentRangeCSS() {
-    const hideResolved = isHideResolved();
     const unified = diffMode === 'unified';
     const commented = [];
     const forming = [];
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
       const commentRanges = (f.comments || []).filter(function(c) {
-        return c.scope !== 'file' && !(hideResolved && c.resolved);
+        return c.scope !== 'file' && !isHiddenResolved(c);
       }).map(function(c) { return { start: c.start_line, end: c.end_line, old: c.side === 'old' }; });
       const formRanges = getFormsForFile(f.path).filter(function(form) {
         return form.scope !== 'file' && form.startLine && (form.afterBlockIndex === null || form.afterBlockIndex === undefined);
@@ -3877,7 +3884,6 @@
     const oldCommentsMap = {};
     const diffCommentsMap = {};
     const rangeSet = new Set();
-    const hideResolved = isHideResolved();
     for (const c of comments) {
       // commentsMap / oldCommentsMap — keyed by end_line only
       const lineKey = c.end_line;
@@ -3890,7 +3896,7 @@
       diffCommentsMap[sideKey].push(c);
       // commentedRangeSet — non-file-scope comments; skip resolved when the
       // hide-resolved toggle is on so the line highlight tracks card visibility.
-      if (c.scope !== 'file' && !(hideResolved && c.resolved)) {
+      if (c.scope !== 'file' && !isHiddenResolved(c)) {
         const side = c.side || '';
         for (let ln = c.start_line; ln <= c.end_line; ln++) rangeSet.add(ln + ':' + side);
       }
@@ -5083,6 +5089,9 @@
   function buildCommentCard(comment, filePath, opts) {
     opts = opts || {};
     const merged = Object.assign({}, opts);
+    if (revealedCommentIds.has(comment.id)) {
+      merged.wrapperClass = (merged.wrapperClass || 'comment-block') + ' comment-revealed';
+    }
     if (typeof merged.isPendingAgentRequest !== 'function') {
       merged.isPendingAgentRequest = function (id) { return pendingAgentRequests.has(id); };
     }
@@ -5878,7 +5887,8 @@
   }
 
   // Scroll to and flash a specific review-level comment card. Mirrors scrollToComment.
-  function scrollToReviewComment(commentId) {
+  // `done(card)`, when given, replaces the default scroll + highlight.
+  function scrollToReviewComment(commentId, done) {
     if (isReviewConversationCollapsed()) {
       setReviewConversationCollapsed(false);
       renderReviewConversation();
@@ -5891,6 +5901,8 @@
       return;
     }
     ignoreTreeObserverUntil = Date.now() + 200;
+    updateTreeActive(REVIEW_CONVERSATION_PATH);
+    if (done) { done(card); return; }
     card.scrollIntoView({ behavior: 'smooth', block: 'center' });
     card.classList.remove('comment-card-highlight');
     void card.offsetWidth;
@@ -5898,7 +5910,6 @@
     card.addEventListener('animationend', function() {
       card.classList.remove('comment-card-highlight');
     }, { once: true });
-    updateTreeActive(REVIEW_CONVERSATION_PATH);
   }
 
   // Build the URL for a reply mutation (edit or delete). filePath empty → review-level.
@@ -6295,15 +6306,15 @@
     if (isGeneral) {
       parts.wrapper.style.cursor = 'pointer';
       parts.wrapper.addEventListener('click', function(e) {
-        if (e.target.closest('.comment-actions')) return;
+        if (e.target.closest('.comment-actions, a.comment-ref')) return;
         scrollToReviewComment(comment.id);
       });
     } else {
       // File comments are clickable to scroll to inline location
       parts.wrapper.style.cursor = 'pointer';
       parts.wrapper.addEventListener('click', function(e) {
-        // Don't scroll if clicking action buttons
-        if (e.target.closest('.comment-actions')) return;
+        // Don't scroll if clicking action buttons or comment ID links (those jump themselves)
+        if (e.target.closest('.comment-actions, a.comment-ref')) return;
         scrollToComment(comment.id, filePath);
       });
     }
@@ -6502,7 +6513,9 @@
     }, { once: true });
   }
 
-  function scrollToComment(commentId, filePath) {
+  // `done(card)` handles the mounted card (default: flashCommentCard).
+  function scrollToComment(commentId, filePath, done) {
+    done = done || flashCommentCard;
     // Story view: the comment renders inside its owning chapter, not a
     // file-section. Activate that chapter first (chapter-aware navigation),
     // then locate + flash the card within the story pane on the next frame.
@@ -6530,13 +6543,13 @@
         const pane = document.getElementById('storyPane');
         if (!pane) return;
         const card = pane.querySelector('.comment-card[data-comment-id="' + CSS.escape(commentId) + '"]');
-        if (card) flashCommentCard(card);
+        if (card) done(card);
       };
       if (navigated) requestAnimationFrame(locate); else locate();
       return;
     }
 
-    if (pierreView && pierreViewActive()) pierreJumpToComment(commentId, filePath, flashCommentCard);
+    if (pierreView && pierreViewActive()) pierreJumpToComment(commentId, filePath, done);
   }
 
   // ===== PR Overview Panel =====
