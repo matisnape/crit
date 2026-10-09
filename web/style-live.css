@@ -79,7 +79,7 @@
 .crit-mode-live .main-layout {
   display: flex;
   flex-direction: row;
-  height: calc(100vh - var(--crit-header-height, 56px));
+  height: calc(100vh / var(--crit-ui-scale) - var(--crit-header-height, 56px));
 }
 
 /* Iframe pane sits as a sibling of .comments-panel inside .main-layout. */
@@ -240,6 +240,9 @@ html[data-theme="light"] .crit-mode-live {
 }
 
 .crit-live-iframe-pane-inner {
+  /* Undo the interface scale's zoom (style.css) so the reviewed page, the
+     viewport presets and pin coordinates stay at 100%. */
+  zoom: calc(1 / var(--crit-ui-scale));
   display: flex;
   justify-content: center;
   align-items: flex-start;

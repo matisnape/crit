@@ -435,7 +435,7 @@
       // so --comments-panel-width tracks a user-resized panel (margin-right:-W
       // slide). Without this, a stale default (480px) on a narrower panel
       // over-collapses and clips the live iframe under overflow-x:clip.
-      var w = panel.getBoundingClientRect().width;
+      var w = panel.offsetWidth; // CSS px, unaffected by the interface scale's zoom
       if (w > 0) document.body.style.setProperty('--comments-panel-width', w + 'px');
       // Transition is gated on body.comments-panel-anim (same as code-review).
       document.body.classList.add('comments-panel-anim');

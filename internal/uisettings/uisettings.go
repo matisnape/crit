@@ -15,6 +15,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -42,6 +43,10 @@ var enums = map[string][]string{
 
 var bools = map[string]bool{"hideResolved": true, "ignoreWhitespace": true, "live_hideResolved": true}
 
+// scales are the offered interface sizes, in percent. Mirrors SCALES in
+// web/crit-ui-settings.js.
+var scales = []float64{75, 80, 90, 100, 110, 125}
+
 // Mirrors MAX_CODE_FONT_LENGTH in web/crit-shared.js.
 const maxCodeFontLength = 256
 
@@ -49,7 +54,8 @@ const maxCodeFontLength = 256
 // Settings-dialog choice, or the saved comment templates).
 func IsSetting(key string) bool {
 	_, enum := enums[key]
-	return enum || bools[key] || key == "lightPalette" || key == "darkPalette" || key == "codeFont" || key == "shortcuts" || key == "templates"
+	return enum || bools[key] || key == "lightPalette" || key == "darkPalette" || key == "codeFont" || key == "shortcuts" ||
+		key == "templates" || key == "scale"
 }
 
 // Validate reports why value is not acceptable for key, or nil.
@@ -73,6 +79,11 @@ func Validate(key string, value any) error {
 		return validateShortcuts(value)
 	case key == "templates":
 		return validateTemplates(value)
+	case key == "scale":
+		if f, ok := value.(float64); !ok || !slices.Contains(scales, f) {
+			return fmt.Errorf("scale: %s is not one of 75, 80, 90, 100, 110, 125", describe(value))
+		}
+		return nil
 	}
 	return fmt.Errorf("%s: unknown setting", key)
 }

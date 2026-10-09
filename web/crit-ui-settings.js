@@ -22,7 +22,11 @@
     'codeOverflow', 'inlineDiff', 'changeIndicators', 'unchangedContext', 'width',
     'hideResolved', 'ignoreWhitespace', 'live_hideResolved', 'shortcuts',
     'templates',
+    'scale',
   ];
+
+  // Interface scale in percent (CRIT-03). Mirrors scales in uisettings.go.
+  var SCALES = [75, 80, 90, 100, 110, 125];
 
   function create(snapshot, deps) {
     var snap = snapshot || {};
@@ -107,12 +111,19 @@
       if (palette) palette.applySaved(html);
     }
 
+    // CSS zoom on <html> (style.css). Anything not offered shows at 100%.
+    function scale() { var s = get('scale', 100); return SCALES.indexOf(s) === -1 ? 100 : s; }
+    function applyScale(root) {
+      var html = root || (typeof document !== 'undefined' && document.documentElement);
+      if (html) html.style.setProperty('--crit-ui-scale', String(scale() / 100));
+    }
+
     // This review's identity (its review folder key), for per-review state.
     var review = String(snap.review || '').replace(/[^A-Za-z0-9_-]/g, '');
-    return { KEYS: KEYS, isSetting: isSetting, get: get, all: all, set: set, refresh: refresh, applyTheme: applyTheme, path: path, review: review };
+    return { KEYS: KEYS, isSetting: isSetting, get: get, all: all, set: set, refresh: refresh, applyTheme: applyTheme, path: path, review: review, scale: scale, applyScale: applyScale };
   }
 
-  var api = { KEYS: KEYS, create: create };
+  var api = { KEYS: KEYS, SCALES: SCALES, create: create };
   if (typeof window !== 'undefined') {
     window.crit = window.crit || {};
     var store = create(window.critUISettings, {
@@ -121,6 +132,7 @@
       themePalette: function () { return window.crit.themePalette; },
     });
     store.create = create;
+    store.SCALES = SCALES;
     window.crit.uiSettings = store;
   }
   if (typeof module === 'object' && module.exports) module.exports = api;
