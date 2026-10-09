@@ -259,6 +259,30 @@ test.describe('Jump to a comment by ID', () => {
     await expect(page).toHaveURL(new RegExp(`#${rp.id}$`));
   });
 
+  test('CRIT-05.5 a file-tree click right after a jump is not undone by the jump', async ({ page, request }) => {
+    // The review comment sits at the top of the list, so the jump cannot
+    // centre it. Click a file in the tree in the same task as the jump,
+    // before the jump's alignment frames have run.
+    const r = await addReviewComment(request, 'Target review comment');
+    await loadPage(page);
+    await page.evaluate(({ id, path }) => new Promise<void>((resolve) => {
+      window.addEventListener('hashchange', () => {
+        (document.querySelector(`.tree-file[data-tree-path="${path}"]`) as HTMLElement).click();
+        resolve();
+      }, { once: true });
+      location.hash = '#' + id;
+    }), { id: r.id, path: FILE });
+    // Longer than the alignment loop's frame cap.
+    await page.evaluate(() => new Promise((res) => {
+      let n = 0;
+      (function tick() { if (++n >= 30) res(true); else requestAnimationFrame(tick); })();
+    }));
+    await expect.poll(() => fileHeader(page, FILE).evaluate((el) => {
+      const rect = el.getBoundingClientRect();
+      return rect.height > 0 && rect.top >= 0 && rect.top < window.innerHeight;
+    }).catch(() => false)).toBe(true);
+  });
+
   test('CRIT-05.6 unknown IDs, IDs inside words and IDs in code stay plain text', async ({ page, request }) => {
     const [line, line2] = await hunkLines(request, FILE);
     const c = await addComment(request, FILE, line, 'Real target');

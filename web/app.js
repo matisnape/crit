@@ -1661,6 +1661,7 @@
     if (!pierreView || !pierreViewActive()) return;
     const file = getFileByPath(filePath);
     if (file && file.collapsed) pierreView.setCollapsed(file, false);
+    pierreAlignSeq++;
     ignoreTreeObserverUntil = Date.now() + 400;
     updateTreeActive(filePath);
     return pierreView.scrollToFile(filePath);
@@ -2286,11 +2287,16 @@
   // ancestor scroll container. The comments panel and other fixed chrome can
   // otherwise make native scrollIntoView move the document instead of the
   // virtualized review list.
+  // Each alignment takes a sequence number; a newer alignment, file jump or
+  // comment jump bumps it, so a running loop never scrolls the list back.
+  let pierreAlignSeq = 0;
   function scrollPierreElementIntoView(el) {
     const root = document.getElementById('filesContainer');
     if (!root || !el) return;
+    const seq = ++pierreAlignSeq;
     let frames = 0;
     (function align() {
+      if (seq !== pierreAlignSeq) return;
       const rootRect = root.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
       const offset = elRect.top - rootRect.top - (root.clientHeight - elRect.height) / 2;
@@ -2310,6 +2316,7 @@
   let pierreJumpSeq = 0;
   function pierreJumpToComment(commentId, filePath, done) {
     if (!pierreView) return;
+    pierreAlignSeq++;
     const seq = ++pierreJumpSeq;
     const isCurrent = function() { return seq === pierreJumpSeq; };
     const card = function() {
