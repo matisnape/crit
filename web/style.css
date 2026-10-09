@@ -1926,6 +1926,21 @@ body.dragging { user-select: none; cursor: grabbing; }
   font-size: 11px;
 }
 
+/* Comment / reply ID — click copies it (crit-comment-card.js buildIdCopyButton). */
+.comment-id-btn {
+  font-family: var(--crit-font-mono);
+  font-size: 11px;
+  color: var(--crit-editor-fg);
+  background: none;
+  border: 0;
+  border-radius: 3px;
+  padding: 0 2px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.comment-id-btn:hover { text-decoration: underline; }
+.comment-id-btn:focus-visible { outline: 2px solid var(--crit-brand); outline-offset: 1px; }
+
 .reply-body {
   font-family: var(--crit-font-body);
   font-size: 14px;

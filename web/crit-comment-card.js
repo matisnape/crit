@@ -41,6 +41,47 @@
   function alwaysFalse() { return false; }
   function alwaysUndef() { return undefined; }
 
+  // buildIdCopyButton — the comment/reply ID as a small button that copies
+  // exactly the ID. Shared by comment headers (code review + live mode) and
+  // both reply renderers. Reads navigator.clipboard, #copyStatus (live
+  // region in index.html) and window.crit.shared.showToast at click time.
+  // Returns null when there is no ID yet (optimistic/pending cards).
+  var COPIED_MS = 1500;
+  function buildIdCopyButton(id) {
+    if (!id) return null;
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'comment-id-btn';
+    btn.textContent = id;
+    btn.setAttribute('aria-label', 'Copy comment ID ' + id);
+    var timer = null;
+
+    function copied() {
+      btn.textContent = '✓ Copied';
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(function () { timer = null; btn.textContent = id; }, COPIED_MS);
+      var status = document.getElementById && document.getElementById('copyStatus');
+      if (status) { status.textContent = ''; status.textContent = 'Copied ' + id; }
+    }
+    function failed() {
+      var w = typeof window !== 'undefined' ? window : globalThis;
+      var shared = w.crit && w.crit.shared;
+      if (shared && typeof shared.showToast === 'function') {
+        shared.showToast('Could not copy the comment ID. Copy it by hand: ' + id, { kind: 'error', timeout: 8000 });
+      }
+    }
+
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var clip = typeof navigator !== 'undefined' && navigator.clipboard;
+      if (!clip || typeof clip.writeText !== 'function') { failed(); return; }
+      var p;
+      try { p = clip.writeText(id); } catch (_) { failed(); return; }
+      Promise.resolve(p).then(copied, failed);
+    });
+    return btn;
+  }
+
   function buildCommentCard(comment, filePath, opts) {
     opts = opts || {};
     var deps = opts.deps || {};
@@ -128,6 +169,8 @@
     var fullTime = formatFullTime(comment.created_at);
     if (fullTime) time.title = fullTime;
     headerLeft.appendChild(time);
+    var idBtn = buildIdCopyButton(comment.id);
+    if (idBtn) headerLeft.appendChild(idBtn);
 
     if (liveOrPending) {
       var badge = document.createElement('span');
@@ -275,5 +318,6 @@
 
   return {
     buildCommentCard: buildCommentCard,
+    buildIdCopyButton: buildIdCopyButton,
   };
 });

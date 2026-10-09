@@ -273,8 +273,9 @@ test.describe('Comments Panel — Git Mode', () => {
     await page.locator('#commentsFilterPill .toggle-btn[data-filter="resolved"]').click();
     await expect(panelCards(page)).toHaveCount(1);
 
-    // Click the resolved card
-    await panelCards(page).first().click();
+    // Click the resolved card (on its time, not its centre: the collapsed
+    // header's centre is the comment ID button, which copies instead).
+    await panelCards(page).first().locator('.comment-time').click();
 
     // The resolved inline comment should be visible and highlighted
     const inlineResolved = mdDoc.locator('.comment-card.resolved-card[data-comment-id]').first();

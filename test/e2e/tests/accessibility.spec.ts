@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { loadPage, resetUISettings } from './helpers';
+import { loadPage, resetUISettings, clearAllComments, addComment, getMdPath, switchToDocumentView } from './helpers';
 
 test.describe('Accessibility', () => {
   test.beforeEach(async ({ page, request }) => {
@@ -111,4 +111,39 @@ test.describe('Accessibility', () => {
       });
     }
   }
+
+  // The audits above run with no comments; this one renders comment, reply
+  // and review-level ID buttons and audits the page in both themes.
+  test('CRIT-04.3 comment ID buttons are focusable, named, and add no violations', async ({ page, request }) => {
+    await clearAllComments(request);
+    const mdPath = await getMdPath(request);
+    const comment = await addComment(request, mdPath, 1, 'a11y id');
+    const reply = await (await request.post(`/api/comment/${comment.id}/replies?path=${encodeURIComponent(mdPath)}`, {
+      data: { body: 'a11y reply' },
+    })).json();
+    const review = await (await request.post('/api/comments', { data: { body: 'a11y review' } })).json();
+    await loadPage(page);
+    await switchToDocumentView(page);
+
+    for (const id of [comment.id, reply.id, review.id]) {
+      const btn = page.getByRole('button', { name: 'Copy comment ID ' + id, exact: true });
+      await expect(btn).toHaveCount(1);
+      await btn.focus();
+      await expect(btn).toBeFocused();
+    }
+    // Comment headers already carry contrast violations of their own (muted
+    // time / round badge / Resolve label on the header background), so the
+    // check is scoped to the ID buttons: they must add no violation.
+    for (const theme of ['dark', 'light'] as const) {
+      await setTheme(page, theme);
+      const results = await new AxeBuilder({ page })
+        .include('.comment-id-btn')
+        .withTags(['wcag2a', 'wcag2aa'])
+        .analyze();
+      const found = results.violations.flatMap(v => v.nodes.map(n => `${v.id}: ${n.html.slice(0, 80)}\n${n.failureSummary || ''}`));
+      expect(found, theme).toEqual([]);
+      expect(results.passes.some(p => p.id === 'color-contrast'), theme + ': contrast was actually checked').toBe(true);
+    }
+    await clearAllComments(request);
+  });
 });

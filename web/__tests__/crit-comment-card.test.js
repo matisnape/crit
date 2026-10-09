@@ -233,3 +233,108 @@ test('GitLab badge renders when comment.gitlab_note_id is set', () => {
   assert.equal(badges[0].textContent, 'GitLab');
   assert.equal(badges[0].attrs['aria-label'], 'Synced from GitLab');
 });
+
+// ===== CRIT-04: comment ID copy button =====
+
+const { mock } = require('node:test');
+
+function withClipboardEnv(clipboard, fn) {
+  const status = makeEl();
+  const toasts = [];
+  const prevNav = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const prevWin = globalThis.window;
+  Object.defineProperty(globalThis, 'navigator', { value: { clipboard }, configurable: true, writable: true });
+  globalThis.window = { crit: { shared: { showToast: (msg, opts) => { toasts.push({ msg, opts }); return () => {}; } } } };
+  global.document.getElementById = (id) => (id === 'copyStatus' ? status : null);
+  return Promise.resolve()
+    .then(() => fn({ status, toasts }))
+    .finally(() => {
+      if (prevNav) Object.defineProperty(globalThis, 'navigator', prevNav);
+      else delete globalThis.navigator;
+      globalThis.window = prevWin;
+      delete global.document.getElementById;
+    });
+}
+
+function clickEvent() {
+  return { stopped: false, stopPropagation() { this.stopped = true; } };
+}
+
+// Lets the clipboard promise's .then/.catch callbacks run.
+const flush = () => new Promise((r) => setImmediate(r));
+
+test('CRIT-04.1 comment header shows the comment ID as a button next to the time', () => {
+  const out = card.buildCommentCard(
+    { id: 'c_49784e', body: 'x', created_at: '2024-01-01T00:00:00Z' },
+    '',
+    { deps: baseDeps() }
+  );
+  const headerLeft = findByClass(out.card, 'comment-header-left')[0];
+  const kids = headerLeft.children;
+  const timeIdx = kids.findIndex((k) => k.className === 'comment-time');
+  const idBtn = kids[timeIdx + 1];
+  assert.ok(idBtn, 'an element follows the time');
+  assert.equal(idBtn.className, 'comment-id-btn');
+  assert.equal(idBtn.textContent, 'c_49784e');
+});
+
+test('CRIT-04.1 no ID button when the comment has no id yet', () => {
+  assert.equal(card.buildIdCopyButton(''), null);
+  assert.equal(card.buildIdCopyButton(undefined), null);
+});
+
+test('CRIT-04.3 ID button is a real button with an accessible name', () => {
+  const btn = card.buildIdCopyButton('rp_0e21c6');
+  assert.equal(btn.type, 'button');
+  assert.equal(btn.attrs['aria-label'], 'Copy comment ID rp_0e21c6');
+  assert.equal(btn.textContent, 'rp_0e21c6');
+});
+
+test('CRIT-04.2 click copies exactly the id, shows "✓ Copied" for 1.5s, announces, does not bubble', async () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const written = [];
+    await withClipboardEnv({ writeText: (t) => { written.push(t); return Promise.resolve(); } }, async ({ status, toasts }) => {
+      const btn = card.buildIdCopyButton('c_49784e');
+      const ev = clickEvent();
+      btn.listeners.click(ev);
+      await flush();
+      assert.deepEqual(written, ['c_49784e']);
+      assert.equal(ev.stopped, true);
+      assert.equal(btn.textContent, '✓ Copied');
+      assert.equal(status.textContent, 'Copied c_49784e');
+      assert.equal(toasts.length, 0);
+      // A second click 1s into the confirmation copies the id (not the label)
+      // and restarts the 1.5s confirmation instead of keeping the first timer.
+      mock.timers.tick(1000);
+      btn.listeners.click(clickEvent());
+      await flush();
+      assert.deepEqual(written, ['c_49784e', 'c_49784e']);
+      mock.timers.tick(1499);
+      assert.equal(btn.textContent, '✓ Copied');
+      mock.timers.tick(1);
+      assert.equal(btn.textContent, 'c_49784e');
+    });
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+for (const [label, clipboard] of [
+  ['clipboard API missing', undefined],
+  ['writeText rejects', { writeText: () => Promise.reject(new Error('denied')) }],
+  ['writeText throws', { writeText: () => { throw new Error('denied'); } }],
+]) {
+  test('CRIT-04.6 ' + label + ': no "✓ Copied", error toast contains the id, no throw', async () => {
+    await withClipboardEnv(clipboard, async ({ status, toasts }) => {
+      const btn = card.buildIdCopyButton('c_49784e');
+      assert.doesNotThrow(() => btn.listeners.click(clickEvent()));
+      await flush();
+      assert.equal(btn.textContent, 'c_49784e');
+      assert.notEqual(status.textContent, 'Copied c_49784e');
+      assert.equal(toasts.length, 1);
+      assert.match(toasts[0].msg, /c_49784e/);
+      assert.equal(toasts[0].opts.kind, 'error');
+    });
+  });
+}
