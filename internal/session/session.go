@@ -1682,6 +1682,38 @@ func (s *Session) SetCommentResolved(filePath, id string, resolved bool) (Commen
 	return f.Comments[i], true
 }
 
+// ResolveAllComments resolves every unresolved file and review-level comment
+// in the session, whatever the current focus or range scope, and returns how
+// many it changed. Newly resolved comments get ResolvedRound from s.ReviewRound;
+// already-resolved ones are left alone. One lock, one scheduled write.
+func (s *Session) ResolveAllComments() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC().Format(time.RFC3339)
+	n := 0
+	mark := func(c *Comment) {
+		if c.Resolved {
+			return
+		}
+		c.Resolved = true
+		c.ResolvedRound = s.ReviewRound
+		c.UpdatedAt = now
+		n++
+	}
+	for i := range s.reviewComments {
+		mark(&s.reviewComments[i])
+	}
+	for _, f := range s.Files {
+		for i := range f.Comments {
+			mark(&f.Comments[i])
+		}
+	}
+	if n > 0 {
+		s.scheduleWrite()
+	}
+	return n
+}
+
 // SetCommentLive marks a comment as live (sent to an agent).
 func (s *Session) SetCommentLive(filePath, id string) bool {
 	s.mu.Lock()

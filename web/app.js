@@ -6244,6 +6244,7 @@
       const finishBtn = document.getElementById('finishBtn');
       finishBtn.textContent = openTotal === 0 ? 'Approve' : 'Finish Review';
       window.crit.shared.lockFinishBtnIfStopped(finishBtn);
+      syncForceApproveBtn(openTotal);
     }
   }
 
@@ -6751,8 +6752,10 @@
         document.getElementById('waitingEdits').textContent = '';
         waitingOverlay.classList.remove('active');
         window.crit.shared.lockFinishBtnIfStopped(finishBtn);
+        syncForceApproveBtn(unresolvedComments);
         break;
       case 'waiting':
+        syncForceApproveBtn(0);
         finishBtn.textContent = 'Waiting...';
         finishBtn.disabled = true;
         finishBtn.classList.remove('btn-primary');
@@ -6793,36 +6796,53 @@
     });
   }
 
+  // Resolves every comment in the session server-side (including files outside
+  // the current scope), then finishes. A failed resolve never finishes.
+  let resolveAllInFlight = false;
   async function resolveAllAndFinish() {
-    // Resolve all unresolved file comments
-    for (let fi = 0; fi < files.length; fi++) {
-      const fileComments = files[fi].comments || [];
-      for (let ci = 0; ci < fileComments.length; ci++) {
-        if (!fileComments[ci].resolved) {
-          try {
-            await fetch('/api/comment/' + fileComments[ci].id + '/resolve?path=' + enc(files[fi].path), {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ resolved: true }),
-            });
-          } catch {}
-        }
-      }
+    if (resolveAllInFlight) return;
+    resolveAllInFlight = true;
+    try {
+      const resp = await fetch('/api/comments/resolve-all', { method: 'POST' });
+      if (!resp.ok) throw new Error('resolve-all failed: ' + resp.status);
+    } catch (err) {
+      console.error('Error resolving comments:', err);
+      showMiniToast('Failed to resolve comments');
+      resolveAllInFlight = false;
+      return;
     }
-    // Resolve all unresolved review comments
-    for (let ri = 0; ri < reviewComments.length; ri++) {
-      if (!reviewComments[ri].resolved) {
-        try {
-          await fetch('/api/review-comment/' + reviewComments[ri].id + '/resolve', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ resolved: true }),
-          });
-        } catch {}
-      }
+    try {
+      await doFinishReview();
+    } finally {
+      resolveAllInFlight = false;
     }
-    await doFinishReview();
   }
+
+  // Header "Approve" shown next to Finish Review while comments are open.
+  function syncForceApproveBtn(openTotal) {
+    const btn = document.getElementById('forceApproveBtn');
+    const finishBtn = document.getElementById('finishBtn');
+    const show = uiState === 'reviewing' && openTotal > 0;
+    btn.style.display = show ? '' : 'none';
+    btn.disabled = finishBtn.disabled;
+    btn.dataset.open = String(openTotal);
+  }
+
+  const forceApproveOverlay = document.getElementById('forceApproveOverlay');
+  document.getElementById('forceApproveBtn').addEventListener('click', function() {
+    if (uiState !== 'reviewing') return;
+    const n = this.dataset.open;
+    document.getElementById('forceApproveText').textContent =
+      n + (n === '1' ? ' comment' : ' comments') + ' will be resolved and the review approved.';
+    forceApproveOverlay.classList.add('active');
+  });
+  document.getElementById('forceApproveGoBack').addEventListener('click', function() {
+    forceApproveOverlay.classList.remove('active');
+  });
+  document.getElementById('forceApproveConfirm').addEventListener('click', async function() {
+    forceApproveOverlay.classList.remove('active');
+    await resolveAllAndFinish();
+  });
 
   function showNoChangesConfirm() {
     document.getElementById('noChangesOverlay').classList.add('active');

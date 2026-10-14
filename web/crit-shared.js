@@ -1005,6 +1005,8 @@
   function showDisconnected() {
     serverStopped = true;
     lockFinishBtnIfStopped(document.getElementById('finishBtn'));
+    var forceBtn = document.getElementById('forceApproveBtn');
+    if (forceBtn) forceBtn.style.display = 'none';
     if (document.querySelector('.disconnected-banner')) return;
     var header = document.querySelector('.header');
     if (!header) return;
