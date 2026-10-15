@@ -119,6 +119,7 @@
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke-linecap="round"/></svg>
     </button>
     <button class="btn" id="shareBtn" style="display:none">Share</button>
+    <button class="btn" id="forceApproveBtn" style="display:none">Approve</button>
     <button class="btn btn-primary" id="finishBtn">Approve</button>
   </div>
 </div>
@@ -268,6 +269,19 @@
         <button class="btn" id="noChangesGoBack">Go back</button>
       </div>
       <button class="confirm-send-anyway" id="noChangesSendAnyway">Send anyway</button>
+    </div>
+  </div>
+</div>
+
+<div class="confirm-overlay" id="forceApproveOverlay" role="dialog" aria-modal="true" aria-labelledby="forceApproveHeading">
+  <div class="confirm-dialog">
+    <h3 id="forceApproveHeading">Approve and resolve all comments?</h3>
+    <p id="forceApproveText"></p>
+    <div class="confirm-actions">
+      <div class="confirm-actions-row">
+        <button class="btn btn-primary" id="forceApproveConfirm">Resolve all &amp; approve</button>
+        <button class="btn" id="forceApproveGoBack">Go back</button>
+      </div>
     </div>
   </div>
 </div>

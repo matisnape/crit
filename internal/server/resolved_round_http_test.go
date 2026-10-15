@@ -116,3 +116,51 @@ func TestAddReplyClearsResolvedRound(t *testing.T) {
 		t.Errorf("ResolvedRound after re-open = %d, want 0", got.ResolvedRound)
 	}
 }
+
+func TestResolveAllComments_HTTP(t *testing.T) {
+	srv, session := newTestServer(t)
+	session.AddComment("test.md", 1, 1, "", "one", "", "", "")
+	session.AddReviewComment("review note", "alice", "")
+
+	cases := []struct {
+		name, method, site string
+		want               int
+	}{
+		{"get not allowed", "GET", "", 405},
+		{"cross-site rejected", "POST", "cross-site", 403},
+	}
+	for _, tc := range cases {
+		req := httptest.NewRequest(tc.method, "/api/comments/resolve-all", nil)
+		if tc.site != "" {
+			req.Header.Set("Sec-Fetch-Site", tc.site)
+		}
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+		if w.Code != tc.want {
+			t.Errorf("%s: status = %d, want %d", tc.name, w.Code, tc.want)
+		}
+	}
+	if n := session.UnresolvedCommentCount(); n != 2 {
+		t.Fatalf("rejected requests changed state: unresolved = %d, want 2", n)
+	}
+
+	req := httptest.NewRequest("POST", "/api/comments/resolve-all", nil)
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("POST status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var got struct {
+		Resolved int `json:"resolved"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Resolved != 2 {
+		t.Errorf("resolved = %d, want 2", got.Resolved)
+	}
+	if n := session.UnresolvedCommentCount(); n != 0 {
+		t.Errorf("unresolved after = %d, want 0", n)
+	}
+}

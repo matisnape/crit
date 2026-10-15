@@ -251,6 +251,7 @@ Session-scoped:
 - `GET  /api/files/list` — list session files (lighter than `/api/session`)
 - `GET  /api/files/comments` — every file's visible comments keyed by path (`?round=N` in files mode); one request instead of one per file
 - `GET|POST /api/comments` — list/add review-level comments
+- `POST /api/comments/resolve-all` — resolve every file and review-level comment in the session (also out-of-scope files), one lock, one write; returns `{resolved: N}`. Used by the header force-approve and the no-changes dialog
 - `PUT|DELETE /api/review-comment/{id}` (and `/replies[/{rid}]`, `/resolve`) — review-comment CRUD
 
 File-scoped (require `?path=X`):

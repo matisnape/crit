@@ -206,6 +206,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 	mux.HandleFunc("/api/base-branch", s.withReady(s.handleBaseBranch))
 	mux.HandleFunc("/api/commits", s.withReady(s.handleCommits))
 	mux.HandleFunc("/api/comments", s.withReady(s.handleReviewComments))
+	mux.HandleFunc("/api/comments/resolve-all", s.withReady(s.handleResolveAllComments))
 	mux.HandleFunc("/api/review-comment/", s.withReady(s.handleReviewCommentByID))
 	mux.HandleFunc("/api/files/list", s.withReady(s.handleFilesList))
 	mux.HandleFunc("/api/files/comments", s.withReady(s.handleAllFileComments))
@@ -2412,6 +2413,22 @@ func (s *Server) handleReviewComments(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// handleResolveAllComments resolves every comment in the session (file,
+// review-level, and files outside the current scope) so a following
+// /api/finish reports approved.
+func (s *Server) handleResolveAllComments(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := s.session.Load()
+	n := sess.ResolveAllComments()
+	if n > 0 {
+		sess.Notify(SSEEvent{Type: "comments-changed"})
+	}
+	writeJSON(w, map[string]int{"resolved": n})
 }
 
 func (s *Server) handleReviewCommentByID(w http.ResponseWriter, r *http.Request) {

@@ -6342,3 +6342,52 @@ func TestComment_DriftedOnRound_OmitWhenZero(t *testing.T) {
 		t.Fatalf("zero value should be omitted: %s", b)
 	}
 }
+
+func TestSession_ResolveAllComments(t *testing.T) {
+	s := newTestSession(t)
+	a, _ := s.AddComment("plan.md", 1, 1, "", "a", "", "", "")
+	b, _ := s.AddComment("plan.md", 3, 3, "", "b", "", "", "")
+	out, _ := s.AddComment("main.go", 1, 1, "", "out of scope", "", "", "")
+	rc := s.AddReviewComment("review note", "alice", "")
+	done, _ := s.AddComment("plan.md", 5, 5, "", "already done", "", "", "")
+	s.SetCommentResolved("plan.md", done.ID, true) // stamped with round 1
+
+	s.Lock()
+	s.ReviewRound = 2
+	s.Unlock()
+
+	if got := s.ResolveAllComments(); got != 4 {
+		t.Fatalf("ResolveAllComments = %d, want 4", got)
+	}
+	if n := s.UnresolvedCommentCount(); n != 0 {
+		t.Fatalf("UnresolvedCommentCount = %d, want 0", n)
+	}
+	for _, id := range []struct{ file, id string }{{"plan.md", a.ID}, {"plan.md", b.ID}, {"main.go", out.ID}} {
+		c := s.GetComments(id.file)
+		var found bool
+		for _, x := range c {
+			if x.ID == id.id {
+				found = true
+				if x.ResolvedRound != 2 {
+					t.Errorf("%s ResolvedRound = %d, want 2", x.ID, x.ResolvedRound)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("comment %s missing", id.id)
+		}
+	}
+	for _, c := range s.GetReviewComments() {
+		if c.ID == rc.ID && c.ResolvedRound != 2 {
+			t.Errorf("review comment ResolvedRound = %d, want 2", c.ResolvedRound)
+		}
+	}
+	for _, c := range s.GetComments("plan.md") {
+		if c.ID == done.ID && c.ResolvedRound != 1 {
+			t.Errorf("already-resolved ResolvedRound = %d, want 1 (kept)", c.ResolvedRound)
+		}
+	}
+	if got := s.ResolveAllComments(); got != 0 {
+		t.Errorf("second ResolveAllComments = %d, want 0", got)
+	}
+}
