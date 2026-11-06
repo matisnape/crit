@@ -41,7 +41,7 @@ var enums = map[string][]string{
 	"width":            {"compact", "default", "wide"},
 }
 
-var bools = map[string]bool{"hideResolved": true, "ignoreWhitespace": true, "live_hideResolved": true}
+var bools = map[string]bool{"hideResolved": true, "ignoreWhitespace": true, "live_hideResolved": true, "customCSS": true}
 
 // scales are the offered interface sizes, in percent. Mirrors SCALES in
 // web/crit-ui-settings.js.

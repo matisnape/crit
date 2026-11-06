@@ -453,7 +453,7 @@ func TestParseServerFlags_LiveCookie(t *testing.T) {
 }
 
 func TestCreateLiveSession_EmptyOriginIsFatal(t *testing.T) {
-	_, err := createLiveSession(&serverConfig{liveOrigin: ""})
+	_, err := createLiveSession(t, &serverConfig{liveOrigin: ""})
 	if err == nil {
 		t.Fatal("createLiveSession with empty origin must error")
 	}
@@ -587,8 +587,10 @@ func TestRunLive_ColdStartBrowserOwnership(t *testing.T) {
 				return false
 			}
 			signalHandlerInstalled := false
-			installLiveDaemonSignalHandler = func(int) {
+			var gotSignals []os.Signal
+			installLiveDaemonSignalHandler = func(_ daemon.SessionEntry, sigs ...os.Signal) {
 				signalHandlerInstalled = true
+				gotSignals = sigs
 			}
 			browserOpenCalls := 0
 			launchLiveBrowser = func(string, string) {
@@ -599,6 +601,9 @@ func TestRunLive_ColdStartBrowserOwnership(t *testing.T) {
 
 			if !signalHandlerInstalled {
 				t.Fatal("daemon signal handler was not installed")
+			}
+			if !reflect.DeepEqual(gotSignals, daemon.TerminationSignals()) {
+				t.Fatalf("signals = %v, want %v", gotSignals, daemon.TerminationSignals())
 			}
 			if !clientRan {
 				t.Fatal("review client did not run")
@@ -1042,7 +1047,7 @@ func TestCreateLiveSession_FreshStartsOnRoundOne(t *testing.T) {
 		liveOrigin: "http://localhost:4000",
 		reviewPath: identity,
 	}
-	s, err := createLiveSession(sc)
+	s, err := createLiveSession(t, sc)
 	if err != nil {
 		t.Fatalf("createLiveSession: %v", err)
 	}
@@ -1079,7 +1084,7 @@ func TestCreateLiveSession_HonorsRoundWhenCommentsPresent(t *testing.T) {
 		liveOrigin: "http://localhost:4000",
 		reviewPath: identity,
 	}
-	s, err := createLiveSession(sc)
+	s, err := createLiveSession(t, sc)
 	if err != nil {
 		t.Fatalf("createLiveSession: %v", err)
 	}
@@ -1264,7 +1269,7 @@ func TestCreateLiveSession_FreshAwaitsFirstReview(t *testing.T) {
 		liveOrigin: "http://localhost:4000",
 		reviewPath: identity,
 	}
-	s, err := createLiveSession(sc)
+	s, err := createLiveSession(t, sc)
 	if err != nil {
 		t.Fatalf("createLiveSession: %v", err)
 	}
@@ -1289,7 +1294,7 @@ func TestLiveSession_FirstPinAfterBootShipsRound1(t *testing.T) {
 		liveOrigin: "http://localhost:4000",
 		reviewPath: identity,
 	}
-	sess, err := createLiveSession(sc)
+	sess, err := createLiveSession(t, sc)
 	if err != nil {
 		t.Fatalf("createLiveSession: %v", err)
 	}

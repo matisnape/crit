@@ -1391,7 +1391,7 @@ func TestApiConfig_IncludesHostedToken(t *testing.T) {
 
 func TestPostShareURL_ReturnsHostedToken(t *testing.T) {
 	s, _ := newTestServer(t)
-	body := `{"url":"https://crit.example/r/zzz","delete_token":"d"}`
+	body := `{"url":"https://crit.example/r/zzz","target_url":"https://crit.example","delete_token":"d"}`
 	req := httptest.NewRequest("POST", "/api/share-url", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -1439,6 +1439,9 @@ func TestGetConfig(t *testing.T) {
 	}
 	if resp["hosted_url"] != "" {
 		t.Errorf("hosted_url should be empty initially, got %v", resp["hosted_url"])
+	}
+	if resp["delete_token"] != "" {
+		t.Errorf("delete_token should be empty initially, got %v", resp["delete_token"])
 	}
 	if resp["version"] != "v1.2.3" {
 		t.Errorf("version = %v, want v1.2.3", resp["version"])
@@ -1533,7 +1536,7 @@ func TestGetConfig_MethodNotAllowed(t *testing.T) {
 func TestPostShareURL(t *testing.T) {
 	s, session := newTestServer(t)
 
-	body := `{"url":"https://crit.md/r/abc123"}`
+	body := `{"url":"https://crit.md/r/abc123","target_url":"https://crit.md"}`
 	req := httptest.NewRequest("POST", "/api/share-url", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -1584,7 +1587,7 @@ func TestPostShare_RemoteDeletedCreatesFreshShare(t *testing.T) {
 	baseURL = critWeb.URL
 
 	s.shareURL = critWeb.URL
-	session.SetSharedURLAndToken(critWeb.URL+"/r/oldtoken", "old-delete-token")
+	session.SetSharedTarget(critWeb.URL+"/r/oldtoken", critWeb.URL, "old-delete-token")
 	session.SetShareScope("old-scope")
 	session.SetShareOrgInfo("old-org", "Old Org", "organization")
 
@@ -1644,7 +1647,7 @@ func TestGetConfig_IncludesDeleteToken(t *testing.T) {
 func TestPostShareURL_SavesDeleteToken(t *testing.T) {
 	s, session := newTestServer(t)
 
-	body := `{"url":"https://crit.md/r/abc","delete_token":"deletetoken1234567890x"}`
+	body := `{"url":"https://crit.md/r/abc","target_url":"https://crit.md","delete_token":"deletetoken1234567890x"}`
 	req := httptest.NewRequest("POST", "/api/share-url", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -1666,14 +1669,24 @@ func TestDeleteShareURL(t *testing.T) {
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 
-	if w.Code != 204 {
-		t.Errorf("status = %d, want 204", w.Code)
+	if w.Code == http.StatusNoContent {
+		t.Fatalf("status = 204; target resolution failure must not clear share state")
 	}
-	if session.GetSharedURL() != "" {
-		t.Errorf("hostedURL should be cleared")
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400, body = %s", w.Code, w.Body.String())
 	}
-	if session.GetDeleteToken() != "" {
-		t.Errorf("deleteToken should be cleared")
+	if url, token := session.GetShareState(); url != "https://crit.md/r/abc" || token != "sometoken1234567890123" {
+		t.Fatalf("share state = %q %q, want URL and delete token kept", url, token)
+	}
+
+	req = httptest.NewRequest("DELETE", "/api/share-url?local_only=1", nil)
+	w = httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("local_only status = %d, want 204", w.Code)
+	}
+	if url, token := session.GetShareState(); url != "" || token != "" {
+		t.Fatalf("local_only share state = %q %q, want cleared", url, token)
 	}
 }
 
@@ -5806,8 +5819,6 @@ func TestHandleMergeComments_DedupStillSyncsSession(t *testing.T) {
 		ReviewRound: 1,
 		Files:       []*FileEntry{{Path: "plan.md", AbsPath: filePath}},
 	}
-	sess.SetSharedURLAndToken("https://crit.md/r/tok123", "del-tok")
-
 	writeCritJSONForTest(t, dir, CritJSON{
 		Files: map[string]CritJSONFile{
 			"plan.md": {Comments: []Comment{{
@@ -5820,6 +5831,12 @@ func TestHandleMergeComments_DedupStillSyncsSession(t *testing.T) {
 	} else {
 		sess.SetLastCritJSONMtimeForTest(info.ModTime())
 	}
+
+	// After the fixture is on disk: this schedules a debounced write, and the
+	// fixture save takes no review lock. A write that read review.json just
+	// before the save would replace the fixture with its own copy, without the
+	// comment.
+	sess.SetSharedURLAndToken("https://crit.md/r/tok123", "del-tok")
 
 	srv, err := NewServer(sess, frontendFS, "", false, "", "", "test", 0, "")
 	if err != nil {
@@ -5952,5 +5969,98 @@ func TestThemesPage_ServedWithoutSession(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "crit-theme-preview.js") {
 		t.Errorf("GET /themes did not serve the theme preview page")
+	}
+}
+
+// Plan reviews started by the plan hook continue when the agent submits the
+// plan again, not by running `crit plan --name`, which blocks in plan mode.
+func TestReviewCycle_PlanHookNextRound(t *testing.T) {
+	tests := []struct {
+		name     string
+		query    string
+		wantNext string
+		want     string
+		notWant  string
+	}{
+		{"manual crit plan", "", "crit plan --name my-feature", "crit plan --name my-feature", "exit plan mode"},
+		{"plan mode hook", "?plan_hook=plan_mode", "", "exit plan mode again", "crit plan --name"},
+		{"codex hook", "?plan_hook=codex", "", "end your turn with the revised plan", "crit plan --name"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s, session := newTestServer(t)
+			session.Mode = "plan"
+			session.PlanDir = "/tmp/plans/my-feature"
+			session.SetAwaitingFirstReview(true)
+			session.AddComment("test.md", 1, 1, "", "expand step 2", "", "", "")
+
+			done := make(chan *httptest.ResponseRecorder, 1)
+			go func() {
+				req := httptest.NewRequest("POST", "/api/review-cycle"+tc.query, nil)
+				w := httptest.NewRecorder()
+				s.ServeHTTP(w, req)
+				done <- w
+			}()
+
+			waitForSubscriberCount(t, session, 1)
+			finish := httptest.NewRecorder()
+			s.ServeHTTP(finish, httptest.NewRequest("POST", "/api/finish", nil))
+
+			check := func(who string, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				if err := json.Unmarshal(body, &resp); err != nil {
+					t.Fatal(err)
+				}
+				if got, _ := resp["next_command"].(string); got != tc.wantNext {
+					t.Errorf("%s next_command = %q, want %q", who, got, tc.wantNext)
+				}
+				prompt, _ := resp["prompt"].(string)
+				if !strings.Contains(prompt, tc.want) {
+					t.Errorf("%s prompt missing %q:\n%s", who, tc.want, prompt)
+				}
+				if strings.Contains(prompt, tc.notWant) {
+					t.Errorf("%s prompt should not contain %q:\n%s", who, tc.notWant, prompt)
+				}
+				if !strings.Contains(prompt, "crit comment --plan my-feature --reply-to") {
+					t.Errorf("%s prompt should keep the reply instruction:\n%s", who, prompt)
+				}
+			}
+			// The browser shows the same prompt the waiting agent gets.
+			check("finish", finish.Body.Bytes())
+
+			select {
+			case w := <-done:
+				check("review-cycle", w.Body.Bytes())
+			case <-time.After(2 * time.Second):
+				t.Fatal("review-cycle did not return in time")
+			}
+			if got := session.PlanHook(); got != "" {
+				t.Errorf("PlanHook() = %q after review-cycle returned, want empty", got)
+			}
+		})
+	}
+}
+
+func TestPlanHookParam(t *testing.T) {
+	tests := []struct {
+		name  string
+		mode  string
+		query string
+		want  string
+	}{
+		{"plan mode hook", "plan", "?plan_hook=plan_mode", "plan_mode"},
+		{"codex hook", "plan", "?plan_hook=codex", "codex"},
+		{"no param", "plan", "", ""},
+		{"unknown value", "plan", "?plan_hook=gemini", ""},
+		{"not a plan session", "files", "?plan_hook=plan_mode", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest("POST", "/api/review-cycle"+tc.query, nil)
+			if got := planHookParam(r, &Session{Mode: tc.mode}); got != tc.want {
+				t.Errorf("planHookParam = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

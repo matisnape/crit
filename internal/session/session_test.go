@@ -6387,6 +6387,14 @@ func TestSession_ResolveAllComments(t *testing.T) {
 			t.Errorf("already-resolved ResolvedRound = %d, want 1 (kept)", c.ResolvedRound)
 		}
 	}
+	// A concurrent disk merge must not undo the bulk resolve.
+	s.RLock()
+	for _, id := range []string{a.ID, b.ID, out.ID, rc.ID} {
+		if _, ok := s.resolvedDirtyIDs[id]; !ok {
+			t.Errorf("comment %s not marked resolved-dirty", id)
+		}
+	}
+	s.RUnlock()
 	if got := s.ResolveAllComments(); got != 0 {
 		t.Errorf("second ResolveAllComments = %d, want 0", got)
 	}

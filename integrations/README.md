@@ -30,6 +30,8 @@ Safe to re-run. Existing files are skipped (use `--force` to overwrite).
 | Codex | `crit install codex` | `.agents/skills/crit{,-cli,-story}/SKILL.md` | `~/.agents/skills/crit{,-cli,-story}/SKILL.md` |
 | Codex plugin | `crit install codex-plugin` | loose skills + marketplace + `plugins/crit/` (incl. crit-story) | `~/.agents/` + `~/.codex/plugins/crit/` |
 | Pi | `crit install pi` | `.pi/skills/crit{,-cli,-story}/SKILL.md` | `~/.pi/agent/skills/crit{,-cli,-story}/SKILL.md` |
+| OMO | `crit install omo` | `.omo/skills/crit{,-cli,-story}/SKILL.md` | `~/.omo/agent/skills/crit{,-cli,-story}/SKILL.md` |
+| omp (Oh My Pi) | `crit install omp` | `.omp/skills/crit{,-cli,-story}/SKILL.md` | `~/.omp/agent/skills/crit{,-cli,-story}/SKILL.md` |
 | Qwen Code | `crit install qwen` | `.qwen/skills/crit{,-cli,-story}/SKILL.md` | `~/.qwen/skills/crit{,-cli,-story}/SKILL.md` |
 | Hermes | `crit install hermes` | `.hermes/skills/crit{,-cli,-story}/SKILL.md` (add `.hermes/skills` to `external_dirs`) | `~/.hermes/skills/crit{,-cli,-story}/SKILL.md` |
 | Windsurf | `crit install windsurf` | `.windsurf/workflows/crit.md` + `crit-story.md` + skills | `~/.codeium/windsurf/global_workflows/` + skills |
@@ -141,6 +143,41 @@ Both approaches give you `$crit` and the `crit-cli` skill. Only `codex-plugin` a
 
 Disable automatic plan review per shell or globally with
 `export CRIT_PLAN_REVIEW=off`. Manual `crit plan` invocations are unaffected.
+
+## OMO
+
+```bash
+crit install omo                    # project-local skills
+cd ~ && crit install omo            # global skills
+```
+
+Invoke `/skill:crit` to start a review loop or `/skill:crit-story` to author
+a story and review it. OMO also accepts `$crit` and `$crit-story`. The
+`crit-cli` skill is model-discoverable for headless comments and CLI operations.
+Project-local skills require OMO's project trust.
+
+The interactive skills use OMO's asynchronous monitor to run Crit and receive
+completion notifications when the human clicks Finish Review, rather than
+holding an eval cell open or polling the review file.
+
+## omp (Oh My Pi)
+
+```bash
+crit install omp                    # project-local skills
+cd ~ && crit install omp            # global skills
+```
+
+Restart omp after installation to discover the skills. Invoke `/skill:crit`
+to start a review loop or `/skill:crit-story` to author a story and review it.
+The `crit-cli` skill is model-discoverable for headless comments and CLI
+operations; interactive reviews require an explicit request to use Crit.
+
+The review skills use omp's asynchronous `bash` jobs with `timeout: 0`, so
+human reviews have no command deadline. Completion notifications deliver the
+feedback after Finish Review; `wait` blocks when no independent work remains.
+When async jobs are disabled, the skills use foreground `bash` with the same
+disabled deadline. Replies use `--author 'omp'` and leave resolution to the
+reviewer unless the user explicitly asks otherwise.
 
 ## Invocation policy
 

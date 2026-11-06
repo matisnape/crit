@@ -27,6 +27,8 @@ func TestInteractiveSkillsRequireExplicitCritWording(t *testing.T) {
 		"integrations/codex/skills/crit/SKILL.md",
 		"integrations/codex/plugin/crit/skills/crit/SKILL.md",
 		"integrations/hermes/skills/crit/SKILL.md",
+		"integrations/omo/skills/crit/SKILL.md",
+		"integrations/omp/skills/crit/SKILL.md",
 	}
 	for _, path := range paths {
 		t.Run(path, func(t *testing.T) {
@@ -77,6 +79,8 @@ func TestCritCLIStaysModelDiscoverableWithoutStartingInteractiveCrit(t *testing.
 		"integrations/pi/skills/crit-cli/SKILL.md",
 		"integrations/qwen/skills/crit-cli/SKILL.md",
 		"integrations/windsurf/skills/crit-cli/SKILL.md",
+		"integrations/omo/skills/crit-cli/SKILL.md",
+		"integrations/omp/skills/crit-cli/SKILL.md",
 	}
 	for _, path := range paths {
 		t.Run(path, func(t *testing.T) {
@@ -150,6 +154,8 @@ func TestCritStorySkillsAreWordingGated(t *testing.T) {
 		"integrations/windsurf/skills/crit-story/SKILL.md",
 		"integrations/opencode/skills/crit-story/SKILL.md",
 		"integrations/gemini/skills/crit-story/SKILL.md",
+		"integrations/omo/skills/crit-story/SKILL.md",
+		"integrations/omp/skills/crit-story/SKILL.md",
 	}
 	for _, path := range paths {
 		t.Run(path, func(t *testing.T) {

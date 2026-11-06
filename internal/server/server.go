@@ -152,6 +152,9 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 	// Theme preview page — static samples, no session needed.
 	mux.HandleFunc("/themes", s.serveHTML("themes.html"))
 
+	// The user's own stylesheet, linked last from index.html and themes.html.
+	mux.HandleFunc("/custom.css", s.handleCustomCSS)
+
 	// Live-mode routes — NOT wrapped in withReady.
 	mux.HandleFunc("/live", s.serveIndexHTML())
 	for _, f := range AgentScriptFiles {
@@ -210,6 +213,7 @@ func NewServer(session *Session, frontendFS embed.FS, shareURL string, proxyAuth
 	mux.HandleFunc("/api/review-comment/", s.withReady(s.handleReviewCommentByID))
 	mux.HandleFunc("/api/files/list", s.withReady(s.handleFilesList))
 	mux.HandleFunc("/api/files/comments", s.withReady(s.handleAllFileComments))
+	mux.HandleFunc("/api/viewed", s.withReady(s.handleViewed))
 	mux.HandleFunc("/api/story", s.withReady(s.handleStory))
 
 	// File-scoped endpoints (use ?path= query param)
@@ -580,6 +584,13 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) { //nolint
 		resp["close_on_approve_after_ms"] = ms
 	}
 
+	// The user's own stylesheet, for the settings panel's Custom CSS card.
+	if path := config.CustomCSSPath(); path != "" {
+		resp["custom_css_path"] = path
+		info, err := os.Stat(path)
+		resp["custom_css_exists"] = err == nil && info.Mode().IsRegular()
+	}
+
 	// Integration detection
 	s.addIntegrationStatus(resp)
 
@@ -824,6 +835,33 @@ func (s *Server) serveEmbeddedCSS(name string) http.HandlerFunc {
 	}
 }
 
+// handleCustomCSS serves ~/.crit/custom.css, read on every request so edits
+// apply on reload. Without one it answers 204 No Content, an empty
+// stylesheet, so pages can link it unconditionally. A file that exists but
+// can't be read is logged.
+func (s *Server) handleCustomCSS(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-cache")
+	path := config.CustomCSSPath()
+	if path == "" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	css, err := os.ReadFile(path)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			log.Printf("custom.css: %v", err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	_, _ = w.Write(css)
+}
+
 // filterFilesAtRound returns the subset of files that have a snapshot recorded
 // at the given round. Caller must not hold session.
 func filterFilesAtRound(session *Session, files []SessionFileInfo, round int) []SessionFileInfo {
@@ -949,12 +987,6 @@ func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) { //noli
 			http.Error(w, "Bad request", http.StatusBadRequest)
 			return
 		}
-		if body.TargetURL == "" {
-			targets, _ := s.resolvedShareTargets()
-			if inferred, ok := config.InferShareBaseURL(body.URL, targets); ok {
-				body.TargetURL = inferred
-			}
-		}
 		var target config.ShareTarget
 		var err error
 		if !s.configConfigured && s.shareURL == "" && body.TargetURL != "" {
@@ -991,14 +1023,17 @@ func (s *Server) handleShareURL(w http.ResponseWriter, r *http.Request) { //noli
 		// (proxy_auth popup path passes local_only=1 after the relay DELETE).
 		localOnly := r.URL.Query().Get("local_only") == "1"
 		if !localOnly {
-			if target, targetErr := s.targetForRequest(""); targetErr == nil {
-				if _, dt := s.session.Load().GetShareState(); dt != "" {
-					if err := share.UnpublishFromWeb(target.URL, dt, target.Auth.Token); err != nil {
-						w.Header().Set("Content-Type", "application/json")
-						w.WriteHeader(http.StatusBadGateway)
-						json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-						return
-					}
+			target, targetErr := s.targetForRequest("")
+			if targetErr != nil {
+				http.Error(w, targetErr.Error(), http.StatusBadRequest)
+				return
+			}
+			if _, dt := s.session.Load().GetShareState(); dt != "" {
+				if err := share.UnpublishFromWeb(target.URL, dt, target.Auth.Token); err != nil {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusBadGateway)
+					json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+					return
 				}
 			}
 		}
@@ -1489,8 +1524,11 @@ func (s *Server) handleShareReshare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Non-fatal if local hash/round persistence fails — remote upsert already succeeded.
-	_ = share.UpdateShareState(sess.CritJSONPath(), files, comments, result.ReviewRound, result.Sent)
-	sess.SyncCommentsFromDisk()
+	if _, err := sess.ApplyReviewFileUpdate(func() error {
+		return share.UpdateShareState(sess.CritJSONPath(), files, comments, result.ReviewRound, result.Sent)
+	}); err != nil {
+		log.Printf("Warning: saving share state after re-share: %v", err)
+	}
 
 	writeJSON(w, map[string]any{
 		"url":             result.URL,
@@ -1559,8 +1597,7 @@ func (s *Server) writeJSONError(w http.ResponseWriter, status int, msg string) {
 
 // pullAndMergeRemoteComments is the shared pull+merge used by /api/share/pull
 // and the first half of /api/share/reshare. Returns merged/replies_updated
-// counts. Caller must SyncCommentsFromDisk if they need a fresh in-memory view
-// after a successful merge (pull does; reshare does after upsert).
+// counts. A successful merge is already loaded into the session.
 func (s *Server) pullAndMergeRemoteComments() (merged, repliesUpdated int, err error) {
 	sess := s.session.Load()
 	hostedURL := sess.GetSharedURL()
@@ -1603,10 +1640,12 @@ func (s *Server) pullAndMergeRemoteComments() (merged, repliesUpdated int, err e
 		return 0, 0, nil
 	}
 	rekeyPulledPreviewComments(sess, fetched.NewComments)
-	if err := share.MergeFetchedComments(critPath, fetched); err != nil {
+	if _, err := sess.ApplyReviewFileUpdate(func() error {
+		_, _, daemonFocus := sess.PickerContext()
+		return share.MergeFetchedCommentsFor(critPath, fetched, &daemonFocus)
+	}); err != nil {
 		return 0, 0, err
 	}
-	sess.SyncCommentsFromDisk()
 	return len(fetched.NewComments), len(fetched.ReplyUpdates), nil
 }
 
@@ -1727,17 +1766,19 @@ func (s *Server) handleMergeComments(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"merged": 0, "replies_updated": 0})
 		return
 	}
-	if err := mergeWebComments(critPath, newComments, replyUpdates); err != nil {
+	// mergeWebComments writes review.json outside WriteFiles. Run it between
+	// a flush and a reload so a debounced save cannot overwrite it, and so
+	// /api/file/comments and the UI see pulled comments without waiting for
+	// the 1s file watcher tick (which can also miss same-second mtime updates).
+	if _, err := sess.ApplyReviewFileUpdate(func() error {
+		_, _, daemonFocus := sess.PickerContext()
+		return share.MergeWebCommentsFor(critPath, newComments, replyUpdates, &daemonFocus)
+	}); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
-	// mergeWebComments writes review.json outside WriteFiles; sync in-memory
-	// state immediately so /api/file/comments and the UI refresh path see
-	// pulled comments without waiting for the 1s file watcher tick (which can
-	// also miss same-second mtime updates).
-	sess.SyncCommentsFromDisk()
 	writeJSON(w, map[string]any{"merged": len(newComments), "replies_updated": len(replyUpdates)})
 }
 
@@ -2765,6 +2806,13 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sess := s.session.Load()
+	// A plan hook starts the next round when the agent submits the plan
+	// again. While it waits, the finish prompt says that instead of
+	// `crit plan --name`.
+	if planHook := planHookParam(r, sess); planHook != "" {
+		sess.SetPlanHook(planHook)
+		defer sess.SetPlanHook("")
+	}
 
 	// Subscribe BEFORE round-complete to avoid missing the finish event
 	// if the user clicks "Finish Review" in the brief window between
@@ -2828,6 +2876,20 @@ func (s *Server) handleReviewCycle(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusGatewayTimeout)
 			return
 		}
+	}
+}
+
+// planHookParam returns the plan hook kind a review-cycle client declared
+// (plan_mode or codex), or "" for any other client or session mode.
+func planHookParam(r *http.Request, sess *Session) string {
+	if sess.Mode != "plan" {
+		return ""
+	}
+	switch v := r.URL.Query().Get("plan_hook"); v {
+	case "plan_mode", "codex":
+		return v
+	default:
+		return ""
 	}
 }
 
@@ -3394,11 +3456,15 @@ func (s *Server) runAgentCmd(prompt string, commentID string, filePath string) {
 			return
 		default:
 		}
-		// Re-read content (and file list/diffs in git mode) so next fetch returns updated data
-		sess.RefreshFileContent()
+		// Re-read content (and file list/diffs in git mode) so next fetch returns
+		// updated data. Git mode leaves content alone: the browser still shows
+		// the text it loaded and comments anchor to it; the next live session
+		// fetch syncs content and moves comments together (SyncWorkingTree).
 		if sess.Mode == "git" {
 			sess.RefreshFileList()
 			sess.RefreshDiffs()
+		} else {
+			sess.RefreshFileContent()
 		}
 		sess.Notify(SSEEvent{Type: "comments-changed"})
 	}

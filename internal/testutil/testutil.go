@@ -39,13 +39,24 @@ func SetHome(t *testing.T, dir string) {
 func InitTestRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	Git(t, dir, "init")
-	Git(t, dir, "config", "user.email", "test@test.com")
-	Git(t, dir, "config", "user.name", "Test")
+	// `init -b` and writing the identity straight into .git/config replace
+	// three extra git spawns per fixture (config x2, branch -M); process
+	// startup dominates test time on Windows.
+	Git(t, dir, "init", "-b", "main")
+	cfg, err := os.OpenFile(filepath.Join(dir, ".git", "config"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = cfg.WriteString("[user]\n\temail = test@test.com\n\tname = Test\n")
+	if cerr := cfg.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
 	WriteFile(t, filepath.Join(dir, "README.md"), "# Test")
 	Git(t, dir, "add", "README.md")
 	Git(t, dir, "commit", "-m", "initial")
-	Git(t, dir, "branch", "-M", "main")
 	return dir
 }
 
@@ -66,7 +77,13 @@ func Git(t *testing.T, dir string, args ...string) string {
 		}
 		env = append(env, kv)
 	}
-	env = append(env, "GIT_CONFIG_NOSYSTEM=1", "HOME="+dir)
+	// Auto-maintenance makes `git commit` start a detached `git maintenance`
+	// or `gc` that can keep writing into .git after the test ends, so
+	// t.TempDir's cleanup fails with "directory not empty".
+	env = append(env, "GIT_CONFIG_NOSYSTEM=1", "HOME="+dir,
+		"GIT_CONFIG_COUNT=2",
+		"GIT_CONFIG_KEY_0=maintenance.auto", "GIT_CONFIG_VALUE_0=false",
+		"GIT_CONFIG_KEY_1=gc.auto", "GIT_CONFIG_VALUE_1=0")
 	if runtime.GOOS == "windows" {
 		env = append(env, "USERPROFILE="+dir)
 	}
@@ -105,8 +122,18 @@ func MustMkdirAll(path string) string {
 // It also fails the run when the developer's real ~/.crit/ui-settings.json
 // changed while the tests ran: that file is shared by every review on the
 // machine, so a test that reaches it would silently rewrite the user's setup.
+//
+// Go's own cache, module cache and env file default to locations under HOME,
+// so they are pinned to their original paths first; otherwise a test that runs
+// `go build` (e.g. to spawn the crit binary) rebuilds from scratch and
+// re-downloads every module. The startup integration and update checks are
+// disabled because they probe agent CLIs on the developer's PATH (seconds per
+// spawned daemon) and call the network.
 func RunWithTempHome(m *testing.M) int {
 	unchanged := GuardRealUISettings()
+	PinGoEnvBeforeHomeChange()
+	os.Setenv("CRIT_NO_INTEGRATION_CHECK", "1")
+	os.Setenv("CRIT_NO_UPDATE_CHECK", "1")
 	home, err := os.MkdirTemp("", "crit-test-home-")
 	if err != nil {
 		panic(err)
@@ -151,4 +178,84 @@ func readOrAbsent(path string) string {
 		return "\x00absent"
 	}
 	return string(data)
+}
+
+// PinGoEnvBeforeHomeChange sets GOENV, GOCACHE and GOMODCACHE to the paths the
+// go command would derive from the current HOME, unless the environment or the
+// user's go env file (`go env -w`) already sets them. Call it before
+// redirecting HOME so `go` subprocesses keep the warm caches.
+func PinGoEnvBeforeHomeChange() {
+	if os.Getenv("GOENV") == "" {
+		if dir, err := os.UserConfigDir(); err == nil {
+			os.Setenv("GOENV", filepath.Join(dir, "go", "env"))
+		}
+	}
+	fileSet := map[string]bool{}
+	// GOENV=off means the go command reads no env file.
+	if goenv := os.Getenv("GOENV"); goenv != "off" {
+		data, _ := os.ReadFile(goenv)
+		for _, line := range strings.Split(string(data), "\n") {
+			if k, _, ok := strings.Cut(strings.TrimSpace(line), "="); ok {
+				fileSet[k] = true
+			}
+		}
+	}
+	unset := func(k string) bool { return os.Getenv(k) == "" && !fileSet[k] }
+	if unset("GOCACHE") {
+		if dir, err := os.UserCacheDir(); err == nil {
+			os.Setenv("GOCACHE", filepath.Join(dir, "go-build"))
+		}
+	}
+	if unset("GOMODCACHE") && unset("GOPATH") {
+		if home, err := os.UserHomeDir(); err == nil {
+			os.Setenv("GOMODCACHE", filepath.Join(home, "go", "pkg", "mod"))
+		}
+	}
+}
+
+// PrependFailingForgeCLIs puts `gh` and `glab` stubs that always fail first on
+// PATH and returns a cleanup func. Code under test that shells out to them
+// (auth status, pr view/list) then fails fast and deterministically instead of
+// depending on whether the developer is logged in, and without spawning the
+// real CLIs or reaching the network. For use from TestMain; tests that need a
+// specific gh behaviour still install their own stub via t.Setenv("PATH").
+func PrependFailingForgeCLIs() func() {
+	dir, err := os.MkdirTemp("", "crit-test-forge-stubs-")
+	if err != nil {
+		panic(err)
+	}
+	if err := writeFailingForgeCLIs(dir); err != nil {
+		panic(err)
+	}
+	os.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return func() { os.RemoveAll(dir) }
+}
+
+// FailingForgeCLIsPathEnv returns a "PATH=..." entry with failing `gh` and
+// `glab` stubs first, for the env of one spawned child process. Unlike
+// PrependFailingForgeCLIs it leaves the test process's PATH alone, so tests
+// in the same package that need the real gh (e2e_github) keep it. exec.Cmd
+// uses the last value of a duplicated key, so append it after os.Environ().
+func FailingForgeCLIsPathEnv(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := writeFailingForgeCLIs(dir); err != nil {
+		t.Fatal(err)
+	}
+	return "PATH=" + dir + string(os.PathListSeparator) + os.Getenv("PATH")
+}
+
+func writeFailingForgeCLIs(dir string) error {
+	for _, name := range []string{"gh", "glab"} {
+		path := filepath.Join(dir, name)
+		content := "#!/bin/sh\necho \"" + name + ": stubbed out in tests\" >&2\nexit 1\n"
+		if runtime.GOOS == "windows" {
+			path += ".bat"
+			content = "@echo " + name + ": stubbed out in tests 1>&2\r\n@exit /b 1\r\n"
+		}
+		if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+			return err
+		}
+	}
+	return nil
 }
