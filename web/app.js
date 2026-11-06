@@ -7757,12 +7757,12 @@
         const inner = envelope.content ? JSON.parse(envelope.content) : envelope;
         const nextStory = (inner && 'story' in inner) ? inner.story : null;
         if (session) session.story = nextStory;
-        // A fresh ingest must always surface the story view — clear any prior
-        // "Hide story view" state. (A null story clears storyHidden inside
-        // applyStoryPresence via the no-story branch.)
+        // A fresh ingest surfaces the story view — clear any prior "Hide story
+        // view" state, unless the page is at #diff. (A null story clears
+        // storyHidden inside applyStoryPresence via the no-story branch.)
         if (nextStory) {
           storyCleared = false;
-          storyHidden = false;
+          storyHidden = location.hash === '#diff';
           storyExpandedFileCache.clear();
           reloadForScope();
         } else {
@@ -10514,9 +10514,11 @@
   // storyHidden: per-page-session escape hatch. "Hide story view" sets this
   // (non-destructive — the story stays on disk and in session.story); the flat
   // file layout renders instead, with a "Show story view" re-entry affordance.
-  // NOT persisted: a reload with a story present shows the story view again. A
-  // fresh story via SSE resets it to false; a null story clears it entirely.
-  let storyHidden = false;
+  // NOT persisted: a reload with a story present shows the story view again,
+  // unless the address is #diff (the plain-diff link handed out next to the
+  // #story link). A fresh story via SSE resets it to false unless the page is
+  // at #diff; a null story clears it entirely.
+  let storyHidden = location.hash === '#diff';
   let storyCleared = false;
   const storyExpandedFileCache = new Map();
 
@@ -11567,6 +11569,7 @@
   // overview (or the page named by the current #story hash, if any).
   async function showStoryView() {
     storyHidden = false;
+    if (location.hash === '#diff') history.replaceState(null, '', '#story');
     await reloadForScope();
   }
 
@@ -11791,6 +11794,10 @@
     }
     window.addEventListener('hashchange', function () {
       const h = location.hash || '';
+      if (h === '#diff') {
+        if (!storyHidden && storyState) hideStoryView();
+        return;
+      }
       if (h.indexOf('#story') !== 0) return;
       // Navigating to a #story hash un-hides a hidden-but-present story.
       if (storyHidden && storyState) { showStoryView(); return; }

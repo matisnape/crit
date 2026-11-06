@@ -967,6 +967,52 @@ test.describe('Story mode', () => {
     await expect(storyOverview(page)).toBeVisible();
   });
 
+  // A full page load at '/#diff', after loadPage has set the diff-scope cookie.
+  async function openWithDiffHash(page: Page) {
+    await loadPage(page);
+    await page.goto('about:blank');
+    await page.goto('/#diff');
+    await expect(page.locator('.loading')).toBeHidden({ timeout: 10_000 });
+  }
+
+  async function expectFlatDiff(page: Page) {
+    await expect(page.locator('body')).toHaveClass(/crit-story-hidden/);
+    await expect(page.locator('body')).not.toHaveClass(/crit-story-active/);
+    await expect(page.locator('#storyViewToggle .toggle-btn[data-story-view="diff"]')).toHaveClass(/active/);
+  }
+
+  test('CRIT-08.1 opening the page with #diff shows the flat diff, and Story returns to the story', async ({ page, request }) => {
+    await postStory(request);
+    await openWithDiffHash(page);
+    await expectFlatDiff(page);
+    await expect(await goSection(page)).toBeVisible();
+
+    await page.locator('#storyViewToggle .toggle-btn[data-story-view="story"]').click();
+    await expect(page.locator('body')).toHaveClass(/crit-story-active/);
+    await expect(storyOverview(page)).toBeVisible();
+    // The address follows the view, so a reload stays in the story.
+    expect(new URL(page.url()).hash).toBe('#story');
+  });
+
+  test('CRIT-08.2 changing the hash to #diff leaves the story view', async ({ page, request }) => {
+    await postStory(request);
+    await loadPage(page);
+    await expect(page.locator('body')).toHaveClass(/crit-story-active/);
+    await page.evaluate(() => { window.location.hash = '#diff'; });
+    await expectFlatDiff(page);
+  });
+
+  test('CRIT-08.4 a story refresh keeps a #diff page on the flat diff', async ({ page }) => {
+    await ingestStoryCLI(critBin, fixtureDir, fakeHome);
+    await openWithDiffHash(page);
+    await expectFlatDiff(page);
+    // story-updated reloads the session; wait for that reload, then check.
+    const reloaded = page.waitForResponse(r => new URL(r.url()).pathname === '/api/session' && r.ok());
+    await ingestStoryCLI(critBin, fixtureDir, fakeHome, { refresh: true });
+    await reloaded;
+    await expectFlatDiff(page);
+  });
+
   test('DELETE /api/story fully removes the story: no re-entry affordance remains', async ({ page, request }) => {
     await postStory(request);
     await loadPage(page);
