@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 )
@@ -73,8 +74,10 @@ func RunReviewClient(entry SessionEntry, sessionKey string, quiet bool) (approve
 }
 
 // RunReviewClientRaw is like RunReviewClient but returns (approved, prompt)
-// without writing to stdout — used by plan hooks.
-func RunReviewClientRaw(entry SessionEntry, sessionKey string) (approved bool, prompt string) {
+// without writing to stdout — used by plan hooks. planHook (plan_mode or codex)
+// tells the daemon how the agent starts the next round, so the prompt says that
+// instead of `crit plan --name`.
+func RunReviewClientRaw(entry SessionEntry, sessionKey, planHook string) (approved bool, prompt string) {
 	client := &http.Client{Timeout: 24 * time.Hour}
 
 	statusCode, body, err := waitForDaemonReady(client, entry.Host, entry.Port, sessionKey, entry.StartedAt)
@@ -92,7 +95,7 @@ func RunReviewClientRaw(entry SessionEntry, sessionKey string) (approved bool, p
 		return false, "crit daemon failed to initialize: " + message
 	}
 
-	resp, err := client.Post(entry.ConnURL()+"/api/review-cycle", "application/json", nil)
+	resp, err := client.Post(entry.ConnURL()+"/api/review-cycle?plan_hook="+url.QueryEscape(planHook), "application/json", nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "crit plan-hook: could not reach daemon: %v\n", err)
 		return false, "crit daemon became unreachable before review was finished."
@@ -120,6 +123,10 @@ func RunReviewClientRaw(entry SessionEntry, sessionKey string) (approved bool, p
 	}
 	return result.Approved, result.Prompt
 }
+
+// readinessPollInterval is the delay between /api/session polls while the
+// daemon is still initializing (503); tests shorten it.
+var readinessPollInterval = 500 * time.Millisecond
 
 func waitForDaemonReady(client *http.Client, host string, port int, sessionKey, daemonGeneration string) (statusCode int, body []byte, err error) {
 	connHost := host
@@ -149,7 +156,7 @@ func waitForDaemonReady(client *http.Client, host string, port int, sessionKey, 
 		if time.Now().After(deadline) {
 			return 0, nil, fmt.Errorf("daemon did not become ready within 5 minutes")
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(readinessPollInterval)
 	}
 }
 

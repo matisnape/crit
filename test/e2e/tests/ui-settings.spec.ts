@@ -520,8 +520,9 @@ test('CRIT-02.8 an unwritable settings file keeps the new theme and names the fi
   await expect(toast).toContainText(settingsPath);
   expect(fs.readFileSync(settingsPath, 'utf8')).toBe('{"theme":"light"}');
   expect(pageErrors).toEqual([]);
-  // The only console line is the browser's own note about the 500 response.
-  expect(consoleErrors.filter(t => !/Failed to load resource.*500/.test(t))).toEqual([]);
+  // The only console lines are the browser's own notes about the 500 response
+  // and the 503s of the page's startup poll (it retries until the session is ready).
+  expect(consoleErrors.filter(t => !/Failed to load resource.*(500|503)/.test(t))).toEqual([]);
 });
 
 test('CRIT-02.10 settings-like keys in a project config never change the stored settings', async ({ page }) => {

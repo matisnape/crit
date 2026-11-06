@@ -30,7 +30,7 @@ Brew:
 brew install crit
 ```
 <details>
-<summary>Also available via Go, Nix and Windows</summary>
+<summary>Also available via Go, Nix, Arch Linux, and Windows</summary>
 
 Go:
 ```bash
@@ -41,6 +41,12 @@ Nix:
 ```bash
 nix profile install github:tomasz-tomczyk/crit
 ```
+
+Arch Linux:
+```bash
+yay -S crit.md-bin
+```
+> [AUR](https://aur.archlinux.org/packages/crit.md-bin) package, maintained outside this project. Any AUR helper works in place of `yay`.
 
 Windows:
 ```bash
@@ -59,7 +65,7 @@ claude plugin marketplace add tomasz-tomczyk/crit
 claude plugin install crit@crit
 ```
 
-Crit also works with Cursor, GitHub Copilot, OpenCode, Codex, Gemini, Qwen, Hermes, Windsurf, Cline, Grok, Aider, and Pi — any agent that can read a file and run a command. See [`integrations/`](integrations/) for all install methods and details.
+Crit also works with Cursor, GitHub Copilot, OpenCode, OMO, omp, Codex, Gemini, Qwen, Hermes, Windsurf, Cline, Grok, Aider, and Pi — any agent that can read a file and run a command. See [`integrations/`](integrations/) for all install methods and details.
 
 ### 3. Tell your agent to use `crit`
 
@@ -209,6 +215,8 @@ Sharing uses [crit.md](https://crit.md) when no sharing key exists. To use sever
 
 Run `crit auth login --share-url https://crit.acme.com` to add or authenticate a target, and add `--set-default` to make it the CLI default. `crit auth status` lists every target. An explicit `"share_targets": []` disables sharing and never injects crit.md. Legacy `share_url` remains readable; `crit config --migrate` converts it atomically. `--share-url` and `CRIT_SHARE_URL` are process-only overrides and never persist a new target; an explicitly empty `CRIT_SHARE_URL` disables sharing for that process.
 
+A review saved before `share_base_url` existed does not guess a deployment from the share link, and it does not fall back to the current default. Re-bind it with `crit share --share-url https://crit.acme.com plan.md`, where that URL is still a configured target. If a saved base URL is no longer in your config, Crit names that missing instance instead of sending the review somewhere else.
+
 If a target sits behind an SSO reverse proxy, set `proxy_auth: true` on that target. Browser-driven Share / Pull / Re-share / Unpublish then use its popup relay; terminal operations remain unavailable for that target.
 
 #### Authentication
@@ -257,6 +265,18 @@ crit push --message "Round 2"                  # add a review summary
 crit push --event approve 42                   # approve
 crit push --event request-changes --forge gitlab 42
 ```
+
+#### Sync viewed files with GitHub
+
+When you review with `crit --pr`, files you mark as viewed can be ticked in the PR's "Files changed" tab, and the other way round:
+
+```bash
+crit push --viewed             # tick your viewed files on the PR
+crit push --viewed --dry-run   # preview what would change
+crit pull --viewed             # bring in files ticked on GitHub
+```
+
+Push skips files that changed since you viewed them, files marked by `auto_viewed_patterns`, and marks made outside the PR's own diff. Unticking a file in Crit unticks it on GitHub. Your marks stay available after you finish a review, so you can push them afterwards. Pull adds GitHub's ticks but keeps any file you unticked in Crit; an open review page shows them after a reload. GitLab has no equivalent, so `--viewed` is an error there.
 
 GitLab inline comments are published as a single review using Draft Notes. `request-changes` requires GitLab support for the `reviewer_state=requested_changes` bulk-publish option; Crit reports an error instead of silently downgrading the outcome. Pulling again imports replies, edits, deletes, and discussion resolution without duplicating local comments.
 
@@ -323,7 +343,8 @@ After the first agent interaction, the comment becomes a **live thread**:
 - **Vim keybindings.** `j`/`k` to navigate, `c` to comment, `Shift+F` to finish. `?` for the full reference.
 - **Concurrent reviews.** Each instance runs on its own port - review multiple plans at once.
 - **Syntax highlighting.** Code blocks are highlighted and split per-line, so you can comment on individual lines inside a fence.
-- **Live file watching.** The browser reloads automatically when the source file changes.
+- **Diagrams and custom renderers.** Mermaid fences render as diagrams, and `.mermaid` / `.mmd` files get a Diagram / Source toggle. In a Mermaid file, click a diagram node to comment on the line that defines it. See the **[renderers guide](docs/renderers.md)**.
+- **Live file watching.** Each new round loads the latest files. If a file under review changes during a round (in files and plan mode), Crit offers to reload the files in place, keeping your place and any comment you're writing. Comments move to their new lines at the next round, so until then one below an added or removed line can sit slightly off, as after a browser refresh.
 - **Paired UI and code themes.** Choose light and dark Shiki-based palettes in Settings; code, rendered markdown and review UI share their colours. System/Light/Dark selects the active palette. Preferences persist in a cookie across ports.
 - **Configurable code font.** Code-review Settings → Display → Code font lists coding/monospace fonts detected by the local Crit daemon, plus Default, System monospace, and a custom `font-family` fallback. Applies to code and diffs, and persists across sessions.
 - **Local by default.** Server binds to `127.0.0.1`. Your files stay on your machine unless you explicitly share. Non-loopback listen hosts and `public_url` require `--allow-unauthenticated-network` (or `CRIT_ALLOW_UNAUTHENTICATED_NETWORK=1`) because Crit has no network authentication — prefer SSH forwarding, Tailscale Serve to loopback, or Docker `-p 127.0.0.1:…`.
@@ -457,6 +478,33 @@ Use `--no-ignore` to temporarily bypass all patterns:
 ```bash
 crit --no-ignore
 ```
+
+### Custom styles
+
+To restyle Crit with your own CSS, create `~/.crit/custom.css`. Every Crit page (reviews, live mode and the theme preview) loads it after Crit's own styles, reading it fresh each time, so edit the file and reload the tab to see changes. If the file can't be read, Crit logs why and uses its own styles. In review and live mode, Settings → Configuration shows whether the file exists and its path, and Settings → Display has a "Use custom CSS" switch to turn it off without deleting it.
+
+Crit marks the page with the mode in use, `data-crit-mode="light"` or `"dark"` (also when following the system setting), so you can keep everything for one mode in one block. Override theme variables and nest element rules inside it:
+
+```css
+:root[data-crit-mode="dark"] {
+  /* the block a comment is on, and the exact words it quotes */
+  --crit-comment-range-bg: rgba(83, 155, 245, 0.15);
+  --crit-quote-highlight-bg: rgba(83, 155, 245, 0.28);
+
+  .line-block.has-comment { box-shadow: inset 3px 0 0 #539bf5; }
+}
+
+:root[data-crit-mode="light"] {
+  --crit-comment-range-bg: rgba(9, 105, 218, 0.10);
+  --crit-quote-highlight-bg: rgba(9, 105, 218, 0.18);
+
+  .line-block.has-comment { box-shadow: inset 3px 0 0 #0969da; }
+}
+```
+
+For a single value that differs by mode, `light-dark(light, dark)` also works.
+
+Code diffs are drawn inside shadow roots, which page CSS cannot reach with selectors; only inherited CSS variables (such as the ones above, or `--diffs-*` overrides) get through. Override the derived `--crit-*` variables, as above: the palette's own `--crit-palette-*` values are set inline on `<html>`, so they only change with `!important`. Class names are not a stable API and may change between releases.
 
 ### Environment variables
 

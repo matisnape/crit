@@ -76,6 +76,8 @@ crit comment --json --file /tmp/replies.json --author 'Cline'
 
 The finish prompt on stdout includes the command to run again — use it to start a new round.
 
+Then tell the user only that you replied in Crit and that they can click Finish Review when ready. Do not repeat your replies or list the comments in chat. The reviewer reads them in Crit.
+
 `crit` automatically signals round-complete, then blocks until the next "Finish Review" click. Only proceed after the user approves (a round finishes with zero comments).
 
 ## CLI Reference
@@ -151,6 +153,8 @@ Always relay the full output (URL, QR) directly in your response — don't make 
 ```bash
 crit pull [number|url]                                   # Fetch PR/MR comments
 crit push [--dry-run] [--event <type>] [-m <msg>] [pr]   # Post review as PR review
+crit push --viewed [pr]                                  # Also tick files marked viewed on the GitHub PR
+crit pull --viewed [pr]                                  # Also fetch files ticked viewed on the GitHub PR
 ```
 
 Requires `gh` CLI. `--event`: `comment` (default), `approve`, `request-changes`.

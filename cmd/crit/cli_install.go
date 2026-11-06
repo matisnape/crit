@@ -222,6 +222,20 @@ var integrationMap = map[string][]integration{
 		{source: "integrations/qwen/skills/crit-cli/SKILL.md", dest: ".qwen/skills/crit-cli/SKILL.md", hint: "The crit-cli skill is available to Qwen Code agents when needed"},
 		{source: "integrations/qwen/skills/crit-story/SKILL.md", dest: ".qwen/skills/crit-story/SKILL.md", hint: "Run /crit-story in Qwen Code to author a story and continue the review loop"},
 	},
+	"omo": {
+		// OMO discovers project skills in .omo/skills/ and global skills in
+		// ~/.omo/agent/skills/.
+		{source: "integrations/omo/skills/crit/SKILL.md", dest: ".omo/skills/crit/SKILL.md", globalDest: ".omo/agent/skills/crit/SKILL.md", globalDestKind: globalDestRelHome, hint: "Run /skill:crit in OMO to start a review loop"},
+		{source: "integrations/omo/skills/crit-cli/SKILL.md", dest: ".omo/skills/crit-cli/SKILL.md", globalDest: ".omo/agent/skills/crit-cli/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-cli skill is available to OMO agents when needed"},
+		{source: "integrations/omo/skills/crit-story/SKILL.md", dest: ".omo/skills/crit-story/SKILL.md", globalDest: ".omo/agent/skills/crit-story/SKILL.md", globalDestKind: globalDestRelHome, hint: "Run /skill:crit-story in OMO to author a story and continue the review loop"},
+	},
+	"omp": {
+		// omp discovers project skills in .omp/skills/ and global skills in
+		// ~/.omp/agent/skills/.
+		{source: "integrations/omp/skills/crit/SKILL.md", dest: ".omp/skills/crit/SKILL.md", globalDest: ".omp/agent/skills/crit/SKILL.md", globalDestKind: globalDestRelHome, hint: "Run /skill:crit in omp to start a review loop"},
+		{source: "integrations/omp/skills/crit-cli/SKILL.md", dest: ".omp/skills/crit-cli/SKILL.md", globalDest: ".omp/agent/skills/crit-cli/SKILL.md", globalDestKind: globalDestRelHome, hint: "The crit-cli skill is available to omp agents when needed"},
+		{source: "integrations/omp/skills/crit-story/SKILL.md", dest: ".omp/skills/crit-story/SKILL.md", globalDest: ".omp/agent/skills/crit-story/SKILL.md", globalDestKind: globalDestRelHome, hint: "Run /skill:crit-story in omp to author a story and continue the review loop"},
+	},
 	"pi": {
 		// Pi auto-discovers skills in both .pi/skills/ (project-local) and
 		// ~/.pi/agent/skills/ (global). Different shape between modes, so

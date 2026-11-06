@@ -20,7 +20,7 @@
   var KEYS = [
     'theme', 'lightPalette', 'darkPalette', 'codeFont', 'lineNumbers', 'boostContrast',
     'codeOverflow', 'inlineDiff', 'changeIndicators', 'unchangedContext', 'width',
-    'hideResolved', 'ignoreWhitespace', 'live_hideResolved', 'shortcuts',
+    'hideResolved', 'ignoreWhitespace', 'live_hideResolved', 'customCSS', 'shortcuts',
     'templates',
     'scale',
   ];

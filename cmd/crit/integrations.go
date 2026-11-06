@@ -560,6 +560,8 @@ var agentProbes = []agentProbe{
 	{"cline", nil, []string{".cline"}, ""},
 	{"codex", []string{"codex"}, nil, ""},
 	{"opencode", []string{"opencode"}, []string{".opencode"}, ""},
+	{"omo", []string{"omo"}, []string{".omo"}, ""},
+	{"omp", []string{"omp"}, []string{".omp"}, ""},
 	{"aider", []string{"aider"}, nil, ""},
 	{"qwen", []string{"qwen"}, []string{".qwen"}, ""},
 	// Ambiguous names: secondary version check prevents false positives from
@@ -675,33 +677,6 @@ func printMissingHints(missing []string) int {
 	}
 	fmt.Fprintf(os.Stderr, "     Disable: CRIT_NO_INTEGRATION_CHECK=1\n")
 	return len(missing)
-}
-
-// hintMissingIntegrations prints a suggestion when AI tools are detected but
-// no crit integration is installed. Skipped when any integration already exists
-// or when CRIT_NO_INTEGRATION_CHECK is set.
-func hintMissingIntegrations() {
-	if os.Getenv("CRIT_NO_INTEGRATION_CHECK") != "" {
-		return
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return
-	}
-	hintMissingIntegrationsFor(cwd, home)
-}
-
-func hintMissingIntegrationsFor(cwd, home string) {
-	if len(installedAgents(cwd, home)) > 0 {
-		return
-	}
-	if missing := checkMissingIntegrations(cwd, home); len(missing) > 0 {
-		printMissingHints(missing)
-	}
 }
 
 // runCheck implements the "crit check" subcommand.

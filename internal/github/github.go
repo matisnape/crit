@@ -19,7 +19,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/forge"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
@@ -1104,34 +1103,41 @@ func updateCritJSONWithEditedBodies(critPath string, succeeded []ghEditForPush) 
 		successByID[e.GitHubID] = e.Body
 	}
 
-	data, err := os.ReadFile(critPath)
-	if err != nil {
-		return err
-	}
-	var cj session.CritJSON
-	if err := json.Unmarshal(data, &cj); err != nil {
-		return err
-	}
-	for path, cf := range cj.Files {
-		for i, c := range cf.Comments {
-			if body, ok := successByID[c.GitHubID]; ok && c.GitHubID != 0 {
-				cf.Comments[i].Body = body
-				cf.Comments[i].LastPushedBodyHash = bodyHashAtPush(body)
-			}
-			for j, r := range c.Replies {
-				if body, ok := successByID[r.GitHubID]; ok && r.GitHubID != 0 {
-					cf.Comments[i].Replies[j].Body = body
-					cf.Comments[i].Replies[j].LastPushedBodyHash = bodyHashAtPush(body)
+	return updateReviewFile(critPath, func(cj *session.CritJSON) {
+		for path, cf := range cj.Files {
+			for i, c := range cf.Comments {
+				// Stamp only the hash: the body may have been edited again
+				// during the push, and then the next push sends it.
+				if body, ok := successByID[c.GitHubID]; ok && c.GitHubID != 0 {
+					cf.Comments[i].LastPushedBodyHash = bodyHashAtPush(body)
+				}
+				for j, r := range c.Replies {
+					if body, ok := successByID[r.GitHubID]; ok && r.GitHubID != 0 {
+						cf.Comments[i].Replies[j].LastPushedBodyHash = bodyHashAtPush(body)
+					}
 				}
 			}
+			cj.Files[path] = cf
 		}
-		cj.Files[path] = cf
-	}
-	out, err := json.MarshalIndent(cj, "", "  ")
-	if err != nil {
-		return err
-	}
-	return config.AtomicWriteFile(critPath, append(out, '\n'), 0644)
+	})
+}
+
+// updateReviewFile reads review.json under the review write lock, applies
+// mutate and saves the result with session.SaveCritJSON. A missing or
+// corrupt review file is an error.
+func updateReviewFile(critPath string, mutate func(*session.CritJSON)) error {
+	return session.WithReviewWriteLock(critPath, func() error {
+		data, err := session.ReadFileShared(session.ReviewPathsFor(critPath).Review)
+		if err != nil {
+			return err
+		}
+		var cj session.CritJSON
+		if err := json.Unmarshal(data, &cj); err != nil {
+			return err
+		}
+		mutate(&cj)
+		return session.SaveCritJSON(critPath, cj)
+	})
 }
 
 // postGHReply posts a reply to an existing GitHub PR review comment.
@@ -1258,6 +1264,48 @@ func buildReviewPayload(comments []map[string]any, message string, event string)
 	return json.Marshal(review)
 }
 
+// ghAPIErrorDetail pulls the "errors" list out of the JSON error body that
+// `gh api` prints to stdout on an HTTP error. gh's stderr only carries the
+// status line (e.g. "gh: Unprocessable Entity (HTTP 422)"), so without this
+// the reason GitHub gave (e.g. "Line could not be resolved") is lost.
+// Entries can be plain strings or objects with a "message" field. Returns ""
+// when stdout is not a GitHub error body or lists no errors.
+func ghAPIErrorDetail(stdout []byte) string {
+	var body struct {
+		Errors []json.RawMessage `json:"errors"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(stdout), &body); err != nil {
+		return ""
+	}
+	details := make([]string, 0, len(body.Errors))
+	for _, raw := range body.Errors {
+		if d := ghAPIErrorEntry(raw); d != "" {
+			details = append(details, d)
+		}
+	}
+	return strings.Join(details, "; ")
+}
+
+// ghAPIErrorEntry renders one entry of a GitHub error body's "errors" list.
+func ghAPIErrorEntry(raw json.RawMessage) string {
+	var str string
+	if err := json.Unmarshal(raw, &str); err == nil {
+		return str
+	}
+	var obj struct {
+		Message string `json:"message"`
+		Field   string `json:"field"`
+		Code    string `json:"code"`
+	}
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return ""
+	}
+	if obj.Message != "" {
+		return obj.Message
+	}
+	return strings.TrimSpace(obj.Field + " " + obj.Code)
+}
+
 // createGHReview posts a review with inline comments to a GitHub PR.
 // message is the top-level review body (empty string posts no top-level comment).
 // Returns a map of "path:endLine" -> GitHubID for each created comment.
@@ -1281,8 +1329,12 @@ func createGHReview(id forge.ChangeID, comments []map[string]any, message string
 		if isGHAuthFailure(combined) {
 			return nil, fmt.Errorf("creating review: %s: %w", strings.TrimSpace(stderr.String()), errGHAuthFailed)
 		}
-		if stderr.Len() > 0 {
-			return nil, fmt.Errorf("creating review: %s", strings.TrimSpace(stderr.String()))
+		msg := strings.TrimSpace(stderr.String())
+		if detail := ghAPIErrorDetail(stdout.Bytes()); detail != "" {
+			msg = strings.TrimSpace(msg + ": " + detail)
+		}
+		if msg != "" {
+			return nil, fmt.Errorf("creating review: %s", msg)
 		}
 		return nil, fmt.Errorf("creating review: %w", err)
 	}
@@ -1331,42 +1383,29 @@ type replyKey struct {
 // commentIDs maps "path:endLine" -> GitHubID for root comments.
 // replyIDs maps replyKey -> GitHubID for replies.
 func updateCritJSONWithGitHubIDs(critPath string, commentIDs map[string]int64, replyIDs map[replyKey]int64) error {
-	data, err := os.ReadFile(session.ReviewPathsFor(critPath).Review)
-	if err != nil {
-		return err
-	}
-	var cj session.CritJSON
-	if err := json.Unmarshal(data, &cj); err != nil {
-		return err
-	}
-
-	for path, cf := range cj.Files {
-		for i, c := range cf.Comments {
-			if c.GitHubID == 0 {
-				key := fmt.Sprintf("%s:%d", path, c.EndLine)
-				if id, ok := commentIDs[key]; ok {
-					cf.Comments[i].GitHubID = id
-					cf.Comments[i].LastPushedBodyHash = bodyHashAtPush(cf.Comments[i].Body)
+	return updateReviewFile(critPath, func(cj *session.CritJSON) {
+		for path, cf := range cj.Files {
+			for i, c := range cf.Comments {
+				if c.GitHubID == 0 {
+					key := fmt.Sprintf("%s:%d", path, c.EndLine)
+					if id, ok := commentIDs[key]; ok {
+						cf.Comments[i].GitHubID = id
+						cf.Comments[i].LastPushedBodyHash = bodyHashAtPush(cf.Comments[i].Body)
+					}
 				}
-			}
-			for j, r := range c.Replies {
-				if r.GitHubID == 0 && cf.Comments[i].GitHubID != 0 {
-					rk := replyKey{ParentGHID: cf.Comments[i].GitHubID, BodyPrefix: truncateStr(r.Body, 60)}
-					if id, ok := replyIDs[rk]; ok {
-						cf.Comments[i].Replies[j].GitHubID = id
-						cf.Comments[i].Replies[j].LastPushedBodyHash = bodyHashAtPush(cf.Comments[i].Replies[j].Body)
+				for j, r := range c.Replies {
+					if r.GitHubID == 0 && cf.Comments[i].GitHubID != 0 {
+						rk := replyKey{ParentGHID: cf.Comments[i].GitHubID, BodyPrefix: truncateStr(r.Body, 60)}
+						if id, ok := replyIDs[rk]; ok {
+							cf.Comments[i].Replies[j].GitHubID = id
+							cf.Comments[i].Replies[j].LastPushedBodyHash = bodyHashAtPush(cf.Comments[i].Replies[j].Body)
+						}
 					}
 				}
 			}
+			cj.Files[path] = cf
 		}
-		cj.Files[path] = cf
-	}
-
-	out, err := json.MarshalIndent(cj, "", "  ")
-	if err != nil {
-		return err
-	}
-	return config.AtomicWriteFile(session.ReviewPathsFor(critPath).Review, append(out, '\n'), 0644)
+	})
 }
 
 // collectDeletesForPush returns the snapshot of pending GitHub DELETE
@@ -1448,30 +1487,17 @@ func updateCritJSONAfterDeletes(critPath string, drained []int64) error {
 		drainedSet[id] = struct{}{}
 	}
 
-	data, err := os.ReadFile(session.ReviewPathsFor(critPath).Review)
-	if err != nil {
-		return err
-	}
-	var cj session.CritJSON
-	if err := json.Unmarshal(data, &cj); err != nil {
-		return err
-	}
-
-	refs := session.RemoteDeletesFor(cj, forge.GitHub)
-	kept := make([]session.RemoteRef, 0, len(refs))
-	for _, ref := range refs {
-		if _, drained := drainedSet[ref.CommentID]; drained {
-			continue
+	return updateReviewFile(critPath, func(cj *session.CritJSON) {
+		refs := session.RemoteDeletesFor(*cj, forge.GitHub)
+		kept := make([]session.RemoteRef, 0, len(refs))
+		for _, ref := range refs {
+			if _, drained := drainedSet[ref.CommentID]; drained {
+				continue
+			}
+			kept = append(kept, ref)
 		}
-		kept = append(kept, ref)
-	}
-	session.ReplaceRemoteDeletes(&cj, forge.GitHub, kept)
-
-	out, err := json.MarshalIndent(cj, "", "  ")
-	if err != nil {
-		return err
-	}
-	return config.AtomicWriteFile(session.ReviewPathsFor(critPath).Review, append(out, '\n'), 0644)
+		session.ReplaceRemoteDeletes(cj, forge.GitHub, kept)
+	})
 }
 
 // truncateStr returns the first n runes of s, or all of s if shorter.

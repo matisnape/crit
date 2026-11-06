@@ -68,6 +68,35 @@ func TestSetFocus_Range_RebuildsFiles(t *testing.T) {
 	}
 }
 
+// Range focus drops binary files and ignore_patterns matches, like the
+// working-tree file list does.
+func TestSetFocus_Range_FiltersBinaryAndIgnored(t *testing.T) {
+	dir := initTestRepo(t)
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	commitAt(t, dir, "doc.md", "# Doc\n", "add doc")
+	commitAt(t, dir, "shot.png", "\x89PNG\r\n\x1a\n", "add image")
+	commitAt(t, dir, "gen/out.txt", "generated\n", "add generated")
+	head := gitT(t, dir, "rev-parse", "HEAD")
+
+	s := &Session{
+		RepoRoot:       dir,
+		OutputDir:      dir,
+		VCS:            &vcs.GitVCS{},
+		IgnorePatterns: []string{"gen/"},
+	}
+
+	if err := s.SetFocus(Focus{Kind: FocusRange, BaseSHA: base, HeadSHA: head, DiffScope: DiffScopeLayer}); err != nil {
+		t.Fatal(err)
+	}
+	var paths []string
+	for _, f := range s.Files {
+		paths = append(paths, f.Path)
+	}
+	if len(paths) != 1 || paths[0] != "doc.md" {
+		t.Errorf("expected [doc.md], got %v", paths)
+	}
+}
+
 // TestSetFocus_PostSetSession_PreservesComments is a regression test for B1
 // (review). Background: loadCritJSON checks Session.sessionStarted and bails
 // out post-SetSession; SetFocus calls it at runtime to repopulate per-file
@@ -476,24 +505,22 @@ func TestGetFileDiffSnapshot_RangeLazy_UsesBetweenSHADiff(t *testing.T) {
 func TestGetFileSnapshot_RangeLazy_Deleted(t *testing.T) {
 	dir := initTestRepo(t)
 
-	total := lazyFileThreshold + 1
-	var lazyPath string
-	for i := 0; i < total; i++ {
-		name := fmt.Sprintf("doc%03d.md", i)
-		writeFile(t, filepath.Join(dir, name), fmt.Sprintf("# doc %d\n", i))
-		if i == lazyFileThreshold {
-			lazyPath = name
-		}
-	}
+	// The range must change more than lazyFileThreshold files, with the
+	// deleted one past the eager prefix: it sorts after every added doc.
+	lazyPath := "zzz-deleted.md"
+	writeFile(t, filepath.Join(dir, lazyPath), "# going away\n")
 	gitT(t, dir, "add", ".")
-	gitT(t, dir, "commit", "-m", "add docs")
+	gitT(t, dir, "commit", "-m", "add doomed doc")
 	base := gitT(t, dir, "rev-parse", "HEAD")
 
+	for i := 0; i < lazyFileThreshold+1; i++ {
+		writeFile(t, filepath.Join(dir, fmt.Sprintf("doc%03d.md", i)), fmt.Sprintf("# doc %d\n", i))
+	}
 	if err := os.Remove(filepath.Join(dir, lazyPath)); err != nil {
 		t.Fatal(err)
 	}
 	gitT(t, dir, "add", "-A")
-	gitT(t, dir, "commit", "-m", "delete lazy doc")
+	gitT(t, dir, "commit", "-m", "add docs, delete doomed doc")
 	head := gitT(t, dir, "rev-parse", "HEAD")
 
 	s := &Session{
@@ -519,9 +546,7 @@ func TestGetFileSnapshot_RangeLazy_Deleted(t *testing.T) {
 		t.Fatalf("status = %q, want deleted", lazyFile.Status)
 	}
 	if !lazyFile.Lazy {
-		// Ordering is by ChangedFilesBetweenSHAs; if the deleted file landed
-		// in the eager prefix, skip — the load path still matters when lazy.
-		t.Skip("deleted file was eagerly loaded; threshold ordering put it under the cut")
+		t.Fatalf("%s was loaded eagerly; the fixture must place it past the lazy threshold", lazyPath)
 	}
 
 	snap, ok := s.GetFileSnapshot(lazyPath)
