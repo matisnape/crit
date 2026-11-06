@@ -1,10 +1,13 @@
 import { test, expect } from '@playwright/test';
-import { loadPage, resetUISettings } from './helpers';
+import { loadPage, resetUISettings, storedUISettings } from './helpers';
 
 // The fixture's fake home has a ~/.crit/custom.css that defines a probe
 // variable (setup-fixtures-singlefile.sh).
 test.describe('Custom stylesheet — Single File Mode', () => {
-  test('~/.crit/custom.css is linked last, shown in Settings, and its switch turns it off across reloads', async ({ page }) => {
+  test('~/.crit/custom.css is linked last, shown in Settings, and its switch turns it off across reloads', async ({ page, request }) => {
+    // The switch is saved in the daemon's ~/.crit/ui-settings.json, which
+    // outlives the browser context (and a failed attempt): start from the defaults.
+    await resetUISettings(request);
     const applied = () => page.evaluate(() =>
       getComputedStyle(document.documentElement).getPropertyValue('--crit-e2e-custom-css').trim());
     await loadPage(page);
@@ -28,10 +31,14 @@ test.describe('Custom stylesheet — Single File Mode', () => {
     await expect(page.locator('#customCSSToggle')).toBeChecked();
     await page.locator('label.comments-panel-switch', { has: page.locator('#customCSSToggle') }).click();
     await expect.poll(applied).toBe('');
+    // The switch saves with an async PATCH; reloading before it lands serves the
+    // old value (seen on the Windows runners).
+    await expect.poll(async () => (await storedUISettings(request)).customCSS).toBe(false);
 
     await loadPage(page);
     await expect(page.locator('#critCustomCSS')).toHaveJSProperty('disabled', true);
     expect(await applied()).toBe('');
+    await resetUISettings(request);
   });
 
   test('data-crit-mode follows the theme, so per-mode blocks (and rules nested in them) apply', async ({ page, request }) => {
